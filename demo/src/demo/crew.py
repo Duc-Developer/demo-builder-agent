@@ -4,6 +4,7 @@ from pathlib import Path
 from crewai import Agent, Crew, LLM, Process, Task
 from crewai.project import CrewBase, agent, crew, task
 from crewai.agents.agent_builder.base_agent import BaseAgent
+from crewai.knowledge.source.text_file_knowledge_source import TextFileKnowledgeSource
 from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[2] / ".env")
@@ -14,6 +15,14 @@ class Demo():
 
     agents: list[BaseAgent]
     tasks: list[Task]
+
+    def _agent_skill_source(self, agent_name: str) -> TextFileKnowledgeSource:
+        skills_root = Path(__file__).resolve().parents[1] / "skills"
+        return TextFileKnowledgeSource(
+            file_paths=[
+                skills_root / agent_name / "skills.md",
+            ]
+        )
 
     def _llm(self) -> LLM:
         model = os.getenv("MODEL")
@@ -38,6 +47,7 @@ class Demo():
         return Agent(
             config=self.agents_config['business_analytics'], # type: ignore[index]
             llm=self._llm(),
+            knowledge_sources=[self._agent_skill_source("business_analytics")],
             verbose=True
         )
 
@@ -46,6 +56,7 @@ class Demo():
         return Agent(
             config=self.agents_config['frontend_developer'], # type: ignore[index]
             llm=self._llm(),
+            knowledge_sources=[self._agent_skill_source("frontend_developer")],
             verbose=True
         )
 
@@ -54,6 +65,7 @@ class Demo():
         return Agent(
             config=self.agents_config['manual_tester'], # type: ignore[index]
             llm=self._llm(),
+            knowledge_sources=[self._agent_skill_source("manual_tester")],
             verbose=True
         )
 
@@ -81,6 +93,30 @@ class Demo():
         return Crew(
             agents=self.agents,
             tasks=self.tasks,
+            process=Process.sequential,
+            verbose=True,
+        )
+
+    def business_analytics_crew(self) -> Crew:
+        return Crew(
+            agents=[self.business_analytics()],
+            tasks=[self.business_analytics_task()],
+            process=Process.sequential,
+            verbose=True,
+        )
+
+    def frontend_developer_crew(self) -> Crew:
+        return Crew(
+            agents=[self.frontend_developer()],
+            tasks=[self.frontend_developer_task()],
+            process=Process.sequential,
+            verbose=True,
+        )
+
+    def manual_tester_crew(self) -> Crew:
+        return Crew(
+            agents=[self.manual_tester()],
+            tasks=[self.manual_tester_task()],
             process=Process.sequential,
             verbose=True,
         )
