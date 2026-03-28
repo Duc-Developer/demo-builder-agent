@@ -1,0 +1,1327 @@
+FILE: package.json
+{
+  "name": "todoapp-don-gian",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "vite": "^5.4.8"
+  }
+}
+
+FILE: vite.config.js
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+
+export default defineConfig({
+  plugins: [react()],
+});
+
+FILE: index.html
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Todo</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
+
+FILE: src/main.jsx
+import React from "react";
+import { createRoot } from "react-dom/client";
+import App from "./App.jsx";
+import "./styles.css";
+
+createRoot(document.getElementById("root")).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);
+
+FILE: src/App.jsx
+import React from "react";
+import AppLayout from "./components/AppLayout.jsx";
+import TodoPage from "./pages/TodoPage.jsx";
+
+export default function App() {
+  return (
+    <AppLayout>
+      <TodoPage />
+    </AppLayout>
+  );
+}
+
+FILE: src/styles.css
+:root {
+  --bg: #0b1220;
+  --panel: rgba(255, 255, 255, 0.06);
+  --panel2: rgba(255, 255, 255, 0.09);
+  --text: rgba(255, 255, 255, 0.92);
+  --muted: rgba(255, 255, 255, 0.68);
+  --faint: rgba(255, 255, 255, 0.45);
+  --danger: #ff5c75;
+  --primary: #7c5cff;
+  --ok: #33d17a;
+  --ring: rgba(124, 92, 255, 0.55);
+  --shadow: 0 14px 40px rgba(0, 0, 0, 0.35);
+  --radius: 14px;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  background: radial-gradient(1200px 700px at 10% 10%, rgba(124,92,255,0.26), transparent 60%),
+              radial-gradient(900px 700px at 90% 20%, rgba(51,209,122,0.16), transparent 60%),
+              radial-gradient(800px 600px at 50% 100%, rgba(255,92,117,0.14), transparent 55%),
+              var(--bg);
+  color: var(--text);
+}
+
+a { color: inherit; }
+
+.container {
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 28px 16px 42px;
+}
+
+.card {
+  background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.04));
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.header {
+  padding: 18px 18px 10px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.header h1 {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: 0.3px;
+}
+
+.header .date {
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.section {
+  padding: 14px 18px;
+}
+
+.hr {
+  height: 1px;
+  background: rgba(255,255,255,0.08);
+  margin: 0;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.input {
+  width: 100%;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(0,0,0,0.22);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 10px 12px;
+  outline: none;
+  min-height: 40px;
+}
+
+.input::placeholder { color: rgba(255,255,255,0.45); }
+
+.input:focus {
+  border-color: rgba(124,92,255,0.55);
+  box-shadow: 0 0 0 4px rgba(124,92,255,0.14);
+}
+
+.btn {
+  appearance: none;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.08);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 9px 12px;
+  min-height: 40px;
+  cursor: pointer;
+  transition: transform 80ms ease, background 120ms ease, border-color 120ms ease;
+  user-select: none;
+}
+
+.btn:hover { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.20); }
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn.primary {
+  background: rgba(124,92,255,0.26);
+  border-color: rgba(124,92,255,0.34);
+}
+.btn.primary:hover { background: rgba(124,92,255,0.34); border-color: rgba(124,92,255,0.45); }
+
+.btn.danger {
+  background: rgba(255,92,117,0.14);
+  border-color: rgba(255,92,117,0.26);
+}
+.btn.danger:hover { background: rgba(255,92,117,0.18); border-color: rgba(255,92,117,0.35); }
+
+.btn.ghost {
+  background: transparent;
+  border-color: transparent;
+}
+.btn.ghost:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.12); }
+
+.small {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.error {
+  margin-top: 8px;
+  color: #ffd1d8;
+  background: rgba(255,92,117,0.12);
+  border: 1px solid rgba(255,92,117,0.24);
+  padding: 8px 10px;
+  border-radius: 12px;
+  font-size: 13px;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.controls-left {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.tabs {
+  display: inline-flex;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 999px;
+  padding: 4px;
+  gap: 4px;
+}
+
+.tab {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 8px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.tab[aria-selected="true"] {
+  background: rgba(255,255,255,0.10);
+  color: var(--text);
+}
+
+.search {
+  position: relative;
+  min-width: min(320px, 100%);
+  flex: 1;
+}
+
+.search .input {
+  padding-right: 38px;
+}
+
+.clear-x {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: rgba(255,255,255,0.75);
+  cursor: pointer;
+}
+.clear-x:hover {
+  background: rgba(255,255,255,0.08);
+  border-color: rgba(255,255,255,0.12);
+}
+
+.list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.item {
+  display: grid;
+  grid-template-columns: 30px 1fr auto;
+  gap: 10px;
+  align-items: start;
+  padding: 12px 18px;
+}
+
+.item + .item {
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+
+.item .title {
+  line-height: 1.35;
+  padding-top: 2px;
+  word-break: break-word;
+}
+
+.item .title.completed {
+  color: rgba(255,255,255,0.55);
+  text-decoration: line-through;
+}
+
+.item .meta {
+  margin-top: 6px;
+  color: rgba(255,255,255,0.50);
+  font-size: 12px;
+}
+
+.item-actions {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.checkbox {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  accent-color: var(--primary);
+}
+
+.inline-edit {
+  display: grid;
+  gap: 8px;
+}
+
+.inline-edit .input {
+  min-height: 38px;
+  padding: 9px 10px;
+  border-radius: 12px;
+}
+
+.inline-edit-actions {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.empty {
+  padding: 26px 18px 28px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.banner {
+  margin: 14px 18px 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 92, 117, 0.25);
+  background: rgba(255, 92, 117, 0.12);
+  color: rgba(255,255,255,0.9);
+}
+
+.kbd-hint {
+  color: rgba(255,255,255,0.55);
+  font-size: 12px;
+  margin-top: 8px;
+}
+
+:focus-visible {
+  outline: 3px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* Confirm dialog */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  z-index: 50;
+}
+
+.dialog {
+  width: min(520px, 100%);
+  background: rgba(16, 20, 32, 0.92);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 16px;
+  box-shadow: 0 20px 65px rgba(0,0,0,0.55);
+  overflow: hidden;
+}
+
+.dialog-head {
+  padding: 16px 16px 0;
+}
+
+.dialog-title {
+  margin: 0;
+  font-size: 16px;
+}
+
+.dialog-body {
+  padding: 10px 16px 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.dialog-actions {
+  padding: 16px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+@media (max-width: 520px) {
+  .header { padding-left: 14px; padding-right: 14px; }
+  .section { padding-left: 14px; padding-right: 14px; }
+  .item { padding-left: 14px; padding-right: 14px; grid-template-columns: 30px 1fr; }
+  .item-actions { grid-column: 2 / 3; justify-content: flex-start; flex-wrap: wrap; }
+  .controls { gap: 12px; }
+  .search { min-width: 100%; }
+}
+
+FILE: src/todo/constants.js
+export const STORAGE_KEY = "todoapp.todos.v1";
+export const TITLE_MAX_LENGTH = 200;
+
+export const FILTERS = /** @type {const} */ ({
+  all: "all",
+  active: "active",
+  completed: "completed",
+});
+
+FILE: src/todo/storage.js
+import { STORAGE_KEY } from "./constants.js";
+
+/**
+ * @returns {import("./types").TodoItem[]}
+ */
+export function readTodos() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    // Minimal shape validation
+    return parsed
+      .filter((t) => t && typeof t === "object")
+      .map((t) => ({
+        id: String(t.id ?? ""),
+        title: String(t.title ?? ""),
+        completed: Boolean(t.completed),
+        createdAt: Number(t.createdAt ?? Date.now()),
+        updatedAt: Number(t.updatedAt ?? t.createdAt ?? Date.now()),
+      }))
+      .filter((t) => t.id && t.title)
+      .sort((a, b) => b.createdAt - a.createdAt);
+  } catch (e) {
+    // Fail-safe: do not crash app if JSON is invalid
+    console.warn("[Todo] Failed to parse localStorage, fallback to empty list.", e);
+    return [];
+  }
+}
+
+/**
+ * @param {import("./types").TodoItem[]} todos
+ */
+export function writeTodos(todos) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(todos));
+  } catch (e) {
+    console.warn("[Todo] Failed to write localStorage.", e);
+  }
+}
+
+FILE: src/todo/types.d.ts
+export type TodoItem = {
+  id: string;
+  title: string;
+  completed: boolean;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type Filter = "all" | "active" | "completed";
+
+export type State = {
+  todos: TodoItem[];
+  filter: Filter;
+  searchQuery: string;
+  editingId?: string;
+  error: string | null;
+};
+
+FILE: src/todo/reducer.js
+import { FILTERS } from "./constants.js";
+
+/** @typedef {import("./types").TodoItem} TodoItem */
+/** @typedef {import("./types").State} State */
+
+export const initialState =
+  /** @type {State} */ ({
+    todos: [],
+    filter: FILTERS.all,
+    searchQuery: "",
+    editingId: undefined,
+    error: null,
+  });
+
+/**
+ * @typedef {(
+ *  | { type: "LOAD_TODOS"; todos: TodoItem[] }
+ *  | { type: "ADD_TODO"; todo: TodoItem }
+ *  | { type: "TOGGLE_TODO"; id: string }
+ *  | { type: "EDIT_TODO"; id: string; title: string; updatedAt: number }
+ *  | { type: "DELETE_TODO"; id: string }
+ *  | { type: "CLEAR_COMPLETED" }
+ *  | { type: "SET_FILTER"; filter: State["filter"] }
+ *  | { type: "SET_SEARCH_QUERY"; searchQuery: string }
+ *  | { type: "SET_ERROR"; error: string | null }
+ * )} Action
+ */
+
+/**
+ * @param {State} state
+ * @param {Action} action
+ * @returns {State}
+ */
+export function todoReducer(state, action) {
+  switch (action.type) {
+    case "LOAD_TODOS": {
+      const sorted = [...action.todos].sort((a, b) => b.createdAt - a.createdAt);
+      return { ...state, todos: sorted, error: null };
+    }
+    case "ADD_TODO": {
+      return { ...state, todos: [action.todo, ...state.todos], error: null };
+    }
+    case "TOGGLE_TODO": {
+      const now = Date.now();
+      const todos = state.todos.map((t) =>
+        t.id === action.id ? { ...t, completed: !t.completed, updatedAt: now } : t
+      );
+      return { ...state, todos, error: null };
+    }
+    case "EDIT_TODO": {
+      const todos = state.todos.map((t) =>
+        t.id === action.id ? { ...t, title: action.title, updatedAt: action.updatedAt } : t
+      );
+      return { ...state, todos, editingId: undefined, error: null };
+    }
+    case "DELETE_TODO": {
+      const todos = state.todos.filter((t) => t.id !== action.id);
+      return { ...state, todos, error: null };
+    }
+    case "CLEAR_COMPLETED": {
+      const todos = state.todos.filter((t) => !t.completed);
+      return { ...state, todos, error: null };
+    }
+    case "SET_FILTER": {
+      return { ...state, filter: action.filter };
+    }
+    case "SET_SEARCH_QUERY": {
+      return { ...state, searchQuery: action.searchQuery };
+    }
+    case "SET_ERROR": {
+      return { ...state, error: action.error };
+    }
+    default:
+      return state;
+  }
+}
+
+FILE: src/todo/selectors.js
+import { FILTERS } from "./constants.js";
+
+/** @typedef {import("./types").TodoItem} TodoItem */
+/** @typedef {import("./types").State} State */
+
+/**
+ * @param {TodoItem[]} todos
+ */
+export function remainingCount(todos) {
+  let count = 0;
+  for (const t of todos) if (!t.completed) count++;
+  return count;
+}
+
+/**
+ * @param {TodoItem[]} todos
+ */
+export function completedCount(todos) {
+  let count = 0;
+  for (const t of todos) if (t.completed) count++;
+  return count;
+}
+
+/**
+ * @param {State["filter"]} filter
+ * @returns {(t: TodoItem) => boolean}
+ */
+export function predicateByFilter(filter) {
+  switch (filter) {
+    case FILTERS.active:
+      return (t) => !t.completed;
+    case FILTERS.completed:
+      return (t) => t.completed;
+    case FILTERS.all:
+    default:
+      return () => true;
+  }
+}
+
+/**
+ * @param {string} query
+ * @returns {(t: TodoItem) => boolean}
+ */
+export function predicateBySearch(query) {
+  const q = query.trim().toLowerCase();
+  if (!q) return () => true;
+  return (t) => t.title.toLowerCase().includes(q);
+}
+
+/**
+ * @param {TodoItem[]} todos
+ * @param {State["filter"]} filter
+ * @param {string} searchQuery
+ */
+export function visibleTodos(todos, filter, searchQuery) {
+  const byFilter = predicateByFilter(filter);
+  const bySearch = predicateBySearch(searchQuery);
+  return todos.filter((t) => byFilter(t) && bySearch(t));
+}
+
+FILE: src/utils/id.js
+export function createId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  // Fallback (not perfect, but ok for local-only MVP)
+  return "id_" + Math.random().toString(16).slice(2) + "_" + Date.now().toString(16);
+}
+
+FILE: src/utils/dom.js
+/**
+ * @param {HTMLElement} el
+ */
+export function getFocusableElements(el) {
+  const selector = [
+    "a[href]",
+    "button:not([disabled])",
+    "textarea:not([disabled])",
+    "input:not([disabled])",
+    "select:not([disabled])",
+    "[tabindex]:not([tabindex='-1'])",
+  ].join(",");
+  return /** @type {HTMLElement[]} */ (Array.from(el.querySelectorAll(selector))).filter(
+    (node) => node.offsetParent !== null
+  );
+}
+
+FILE: src/components/AppLayout.jsx
+import React from "react";
+
+export default function AppLayout({ children }) {
+  return <div className="container">{children}</div>;
+}
+
+FILE: src/pages/TodoPage.jsx
+import React, { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { initialState, todoReducer } from "../todo/reducer.js";
+import { readTodos, writeTodos } from "../todo/storage.js";
+import { completedCount, remainingCount, visibleTodos } from "../todo/selectors.js";
+import { FILTERS } from "../todo/constants.js";
+import { createId } from "../utils/id.js";
+
+import TodoInput from "../components/TodoInput.jsx";
+import TodoControls from "../components/TodoControls.jsx";
+import TodoList from "../components/TodoList.jsx";
+import EmptyState from "../components/EmptyState.jsx";
+import ConfirmDialog from "../components/ConfirmDialog.jsx";
+
+function formatDateVi(d = new Date()) {
+  // Lightweight Vietnamese date display (no heavy i18n)
+  try {
+    return new Intl.DateTimeFormat("vi-VN", { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric" }).format(d);
+  } catch {
+    return d.toLocaleDateString();
+  }
+}
+
+export default function TodoPage() {
+  const [state, dispatch] = useReducer(todoReducer, initialState);
+  const didInitRef = useRef(false);
+
+  const [confirmState, setConfirmState] = useState(
+    /** @type {null | { kind: "deleteOne"; id: string; title: string } | { kind: "clearCompleted"; count: number }} */ (null)
+  );
+
+  // Load from localStorage once
+  useEffect(() => {
+    if (didInitRef.current) return;
+    didInitRef.current = true;
+
+    const todos = readTodos();
+    dispatch({ type: "LOAD_TODOS", todos });
+  }, []);
+
+  // Persist on todos change
+  useEffect(() => {
+    // Do not write before init load is complete
+    if (!didInitRef.current) return;
+    writeTodos(state.todos);
+  }, [state.todos]);
+
+  const remaining = useMemo(() => remainingCount(state.todos), [state.todos]);
+  const completed = useMemo(() => completedCount(state.todos), [state.todos]);
+
+  const visible = useMemo(
+    () => visibleTodos(state.todos, state.filter, state.searchQuery),
+    [state.todos, state.filter, state.searchQuery]
+  );
+
+  const showEmptyNoTodos = state.todos.length === 0;
+  const showEmptyNoMatch = state.todos.length > 0 && visible.length === 0;
+
+  function addTodo(rawTitle) {
+    const now = Date.now();
+    const todo = {
+      id: createId(),
+      title: rawTitle,
+      completed: false,
+      createdAt: now,
+      updatedAt: now,
+    };
+    dispatch({ type: "ADD_TODO", todo });
+  }
+
+  function onRequestDelete(todo) {
+    setConfirmState({ kind: "deleteOne", id: todo.id, title: todo.title });
+  }
+
+  function onConfirmDelete() {
+    if (!confirmState || confirmState.kind !== "deleteOne") return;
+    dispatch({ type: "DELETE_TODO", id: confirmState.id });
+    setConfirmState(null);
+  }
+
+  function onRequestClearCompleted() {
+    setConfirmState({ kind: "clearCompleted", count: completed });
+  }
+
+  function onConfirmClearCompleted() {
+    dispatch({ type: "CLEAR_COMPLETED" });
+    setConfirmState(null);
+  }
+
+  return (
+    <div className="card">
+      <div className="header">
+        <h1>Todo</h1>
+        <div className="date" aria-label="Ngày hiện tại">
+          {formatDateVi(new Date())}
+        </div>
+      </div>
+
+      {state.error ? <div className="banner" role="alert">{state.error}</div> : null}
+
+      <div className="section">
+        <TodoInput onAdd={addTodo} />
+        <div className="kbd-hint">
+          Mẹo: Enter để thêm • Double click tiêu đề để sửa • Esc để hủy khi đang sửa
+        </div>
+      </div>
+
+      <div className="hr" />
+
+      <div className="section">
+        <TodoControls
+          filter={state.filter}
+          onChangeFilter={(filter) => dispatch({ type: "SET_FILTER", filter })}
+          searchQuery={state.searchQuery}
+          onChangeSearch={(searchQuery) => dispatch({ type: "SET_SEARCH_QUERY", searchQuery })}
+          remaining={remaining}
+          completed={completed}
+          onClearCompleted={onRequestClearCompleted}
+        />
+      </div>
+
+      <div className="hr" />
+
+      {showEmptyNoTodos ? (
+        <EmptyState text="Chưa có công việc nào. Thêm việc mới để bắt đầu." />
+      ) : showEmptyNoMatch ? (
+        <EmptyState text="Không tìm thấy công việc phù hợp." />
+      ) : (
+        <TodoList
+          todos={visible}
+          onToggle={(id) => dispatch({ type: "TOGGLE_TODO", id })}
+          onEdit={(id, title) => dispatch({ type: "EDIT_TODO", id, title, updatedAt: Date.now() })}
+          onDelete={onRequestDelete}
+        />
+      )}
+
+      <ConfirmDialog
+        open={confirmState !== null}
+        title={
+          confirmState?.kind === "deleteOne"
+            ? "Xóa công việc?"
+            : confirmState?.kind === "clearCompleted"
+              ? "Xóa các việc đã xong?"
+              : ""
+        }
+        description={
+          confirmState?.kind === "deleteOne"
+            ? `Bạn có chắc muốn xóa “${confirmState.title}”? Thao tác này không thể hoàn tác.`
+            : confirmState?.kind === "clearCompleted"
+              ? `Bạn có chắc muốn xóa ${confirmState.count} công việc đã hoàn thành?`
+              : ""
+        }
+        confirmText={confirmState?.kind === "deleteOne" ? "Xóa" : "Xóa"}
+        cancelText="Hủy"
+        tone="danger"
+        onCancel={() => setConfirmState(null)}
+        onConfirm={() => {
+          if (confirmState?.kind === "deleteOne") onConfirmDelete();
+          else if (confirmState?.kind === "clearCompleted") onConfirmClearCompleted();
+        }}
+      />
+    </div>
+  );
+}
+
+FILE: src/components/TodoInput.jsx
+import React, { useMemo, useRef, useState } from "react";
+import { TITLE_MAX_LENGTH } from "../todo/constants.js";
+
+function validateTitle(title) {
+  const trimmed = title.trim();
+  if (!trimmed) return { ok: false, error: "Vui lòng nhập công việc", value: "" };
+  if (trimmed.length > TITLE_MAX_LENGTH)
+    return { ok: false, error: `Tiêu đề tối đa ${TITLE_MAX_LENGTH} ký tự`, value: trimmed };
+  return { ok: true, error: "", value: trimmed };
+}
+
+export default function TodoInput({ onAdd }) {
+  const [value, setValue] = useState("");
+  const [error, setError] = useState("");
+  const inputRef = useRef(null);
+
+  const remainingChars = useMemo(() => TITLE_MAX_LENGTH - value.trim().length, [value]);
+
+  function submit() {
+    const res = validateTitle(value);
+    if (!res.ok) {
+      setError(res.error);
+      return;
+    }
+    onAdd(res.value);
+    setValue("");
+    setError("");
+    // keep focus for rapid entry
+    inputRef.current?.focus();
+  }
+
+  return (
+    <div>
+      <div className="row">
+        <input
+          ref={inputRef}
+          className="input"
+          type="text"
+          value={value}
+          placeholder="Thêm việc cần làm…"
+          aria-label="Thêm việc cần làm"
+          maxLength={TITLE_MAX_LENGTH + 30}
+          onChange={(e) => {
+            setValue(e.target.value);
+            if (error) setError("");
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              submit();
+            }
+          }}
+        />
+        <button className="btn primary" type="button" onClick={submit} disabled={value.trim().length === 0}>
+          Thêm
+        </button>
+      </div>
+
+      <div className="row" style={{ justifyContent: "space-between", marginTop: 8 }}>
+        <div className="small" aria-live="polite">
+          {value.trim().length > 0 ? `Còn ${Math.max(0, remainingChars)} ký tự` : " "}
+        </div>
+        <div className="small">{value.trim().length > TITLE_MAX_LENGTH ? "Vượt giới hạn" : " "}</div>
+      </div>
+
+      {error ? (
+        <div className="error" role="alert">
+          {error}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+FILE: src/components/TodoControls.jsx
+import React from "react";
+import FilterTabs from "./FilterTabs.jsx";
+import SearchBox from "./SearchBox.jsx";
+import Counter from "./Counter.jsx";
+import ClearCompletedButton from "./ClearCompletedButton.jsx";
+
+export default function TodoControls({
+  filter,
+  onChangeFilter,
+  searchQuery,
+  onChangeSearch,
+  remaining,
+  completed,
+  onClearCompleted,
+}) {
+  return (
+    <div className="controls" aria-label="Thanh điều khiển">
+      <div className="controls-left">
+        <FilterTabs value={filter} onChange={onChangeFilter} />
+        <SearchBox value={searchQuery} onChange={onChangeSearch} />
+      </div>
+
+      <div className="controls-left" style={{ justifyContent: "flex-end" }}>
+        <Counter remaining={remaining} />
+        <ClearCompletedButton completed={completed} onClick={onClearCompleted} />
+      </div>
+    </div>
+  );
+}
+
+FILE: src/components/FilterTabs.jsx
+import React from "react";
+import { FILTERS } from "../todo/constants.js";
+
+export default function FilterTabs({ value, onChange }) {
+  return (
+    <div className="tabs" role="tablist" aria-label="Bộ lọc trạng thái">
+      <button
+        type="button"
+        className="tab"
+        role="tab"
+        aria-selected={value === FILTERS.all}
+        onClick={() => onChange(FILTERS.all)}
+      >
+        Tất cả
+      </button>
+      <button
+        type="button"
+        className="tab"
+        role="tab"
+        aria-selected={value === FILTERS.active}
+        onClick={() => onChange(FILTERS.active)}
+      >
+        Đang làm
+      </button>
+      <button
+        type="button"
+        className="tab"
+        role="tab"
+        aria-selected={value === FILTERS.completed}
+        onClick={() => onChange(FILTERS.completed)}
+      >
+        Đã xong
+      </button>
+    </div>
+  );
+}
+
+FILE: src/components/SearchBox.jsx
+import React from "react";
+
+export default function SearchBox({ value, onChange }) {
+  return (
+    <div className="search" aria-label="Tìm kiếm">
+      <input
+        className="input"
+        type="text"
+        placeholder="Tìm kiếm…"
+        aria-label="Tìm kiếm công việc"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      {value ? (
+        <button type="button" className="clear-x" aria-label="Xóa tìm kiếm" onClick={() => onChange("")}>
+          ×
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+FILE: src/components/Counter.jsx
+import React from "react";
+
+export default function Counter({ remaining }) {
+  return (
+    <div className="small" aria-label={`Còn lại: ${remaining}`}>
+      Còn lại: <strong style={{ color: "rgba(255,255,255,0.92)" }}>{remaining}</strong>
+    </div>
+  );
+}
+
+FILE: src/components/ClearCompletedButton.jsx
+import React from "react";
+
+export default function ClearCompletedButton({ completed, onClick }) {
+  if (!completed) return null;
+  return (
+    <button type="button" className="btn danger" onClick={onClick} aria-label="Xóa việc đã xong">
+      Xóa việc đã xong
+    </button>
+  );
+}
+
+FILE: src/components/TodoList.jsx
+import React from "react";
+import TodoItemRow from "./TodoItemRow.jsx";
+
+export default function TodoList({ todos, onToggle, onEdit, onDelete }) {
+  return (
+    <ul className="list" aria-label="Danh sách công việc">
+      {todos.map((t) => (
+        <li key={t.id} className="item">
+          <TodoItemRow todo={t} onToggle={onToggle} onEdit={onEdit} onDelete={onDelete} />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+FILE: src/components/TodoItemRow.jsx
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { TITLE_MAX_LENGTH } from "../todo/constants.js";
+
+function formatTime(ts) {
+  try {
+    return new Intl.DateTimeFormat("vi-VN", {
+      hour: "2-digit",
+      minute: "2-digit",
+      day: "2-digit",
+      month: "2-digit",
+    }).format(new Date(ts));
+  } catch {
+    return new Date(ts).toLocaleString();
+  }
+}
+
+function validateTitle(title) {
+  const trimmed = title.trim();
+  if (!trimmed) return { ok: false, error: "Vui lòng nhập công việc", value: "" };
+  if (trimmed.length > TITLE_MAX_LENGTH)
+    return { ok: false, error: `Tiêu đề tối đa ${TITLE_MAX_LENGTH} ký tự`, value: trimmed };
+  return { ok: true, error: "", value: trimmed };
+}
+
+export default function TodoItemRow({ todo, onToggle, onEdit, onDelete }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [draft, setDraft] = useState(todo.title);
+  const [error, setError] = useState("");
+  const editRef = useRef(null);
+
+  const createdLabel = useMemo(() => formatTime(todo.createdAt), [todo.createdAt]);
+
+  useEffect(() => {
+    if (!isEditing) return;
+    setDraft(todo.title);
+    setError("");
+    // focus next tick for consistent behavior
+    const id = requestAnimationFrame(() => editRef.current?.focus());
+    return () => cancelAnimationFrame(id);
+  }, [isEditing, todo.title]);
+
+  function startEdit() {
+    setIsEditing(true);
+  }
+
+  function cancelEdit() {
+    setIsEditing(false);
+    setDraft(todo.title);
+    setError("");
+  }
+
+  function commitEdit() {
+    const res = validateTitle(draft);
+    if (!res.ok) {
+      setError(res.error);
+      return false;
+    }
+    if (res.value !== todo.title) {
+      onEdit(todo.id, res.value);
+    }
+    setIsEditing(false);
+    setError("");
+    return true;
+  }
+
+  return (
+    <>
+      <input
+        className="checkbox"
+        type="checkbox"
+        checked={todo.completed}
+        aria-label={todo.completed ? "Bỏ hoàn thành" : "Đánh dấu hoàn thành"}
+        onChange={() => onToggle(todo.id)}
+      />
+
+      <div>
+        {!isEditing ? (
+          <>
+            <div
+              className={todo.completed ? "title completed" : "title"}
+              onDoubleClick={startEdit}
+              role="button"
+              tabIndex={0}
+              aria-label="Tiêu đề công việc (double click để sửa)"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") startEdit();
+              }}
+              title="Double click để sửa"
+            >
+              {todo.title}
+            </div>
+            <div className="meta" aria-label="Thời gian tạo">
+              Tạo lúc: {createdLabel}
+            </div>
+          </>
+        ) : (
+          <div className="inline-edit" aria-label="Chỉnh sửa công việc">
+            <input
+              ref={editRef}
+              className="input"
+              value={draft}
+              aria-label="Nội dung chỉnh sửa"
+              onChange={(e) => {
+                setDraft(e.target.value);
+                if (error) setError("");
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  commitEdit();
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  cancelEdit();
+                }
+              }}
+              onBlur={() => {
+                // Per spec: blur -> save (not cancel)
+                commitEdit();
+              }}
+            />
+
+            {error ? (
+              <div className="error" role="alert">
+                {error}
+              </div>
+            ) : null}
+
+            <div className="inline-edit-actions">
+              <button type="button" className="btn primary" onMouseDown={(e) => e.preventDefault()} onClick={commitEdit}>
+                Lưu
+              </button>
+              <button type="button" className="btn" onMouseDown={(e) => e.preventDefault()} onClick={cancelEdit}>
+                Hủy
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="item-actions" aria-label="Hành động">
+        {!isEditing ? (
+          <>
+            <button type="button" className="btn" onClick={startEdit} aria-label="Sửa công việc">
+              Sửa
+            </button>
+            <button
+              type="button"
+              className="btn danger"
+              onClick={() => onDelete(todo)}
+              aria-label="Xóa công việc"
+            >
+              Xóa
+            </button>
+          </>
+        ) : null}
+      </div>
+    </>
+  );
+}
+
+FILE: src/components/ConfirmDialog.jsx
+import React, { useEffect, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
+import { getFocusableElements } from "../utils/dom.js";
+
+export default function ConfirmDialog({
+  open,
+  title,
+  description,
+  confirmText = "Xác nhận",
+  cancelText = "Hủy",
+  tone = "danger",
+  onConfirm,
+  onCancel,
+}) {
+  const dialogRef = useRef(null);
+  const lastActiveRef = useRef(null);
+
+  const confirmBtnClass = useMemo(() => {
+    if (tone === "danger") return "btn danger";
+    if (tone === "primary") return "btn primary";
+    return "btn";
+  }, [tone]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    lastActiveRef.current = document.activeElement;
+
+    const dialogEl = dialogRef.current;
+    if (!dialogEl) return;
+
+    const focusables = getFocusableElements(dialogEl);
+    const initial = focusables[0] || dialogEl;
+    // focus soon after mount
+    const id = requestAnimationFrame(() => initial.focus());
+
+    function onKeyDown(e) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onCancel?.();
+        return;
+      }
+      if (e.key !== "Tab") return;
+
+      const els = getFocusableElements(dialogEl);
+      if (els.length === 0) return;
+
+      const first = els[0];
+      const last = els[els.length - 1];
+
+      if (e.shiftKey) {
+        if (document.activeElement === first || document.activeElement === dialogEl) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    }
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      cancelAnimationFrame(id);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open, onCancel]);
+
+  useEffect(() => {
+    if (open) return;
+    const prev = lastActiveRef.current;
+    if (prev && typeof prev.focus === "function") {
+      requestAnimationFrame(() => prev.focus());
+    }
+  }, [open]);
+
+  if (!open) return null;
+
+  return createPortal(
+    <div
+      className="backdrop"
+      role="presentation"
+      onMouseDown={(e) => {
+        // click outside dialog closes
+        if (e.target === e.currentTarget) onCancel?.();
+      }}
+    >
+      <div
+        className="dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        ref={dialogRef}
+        tabIndex={-1}
+      >
+        <div className="dialog-head">
+          <h2 className="dialog-title">{title}</h2>
+        </div>
+        <div className="dialog-body">{description}</div>
+        <div className="dialog-actions">
+          <button type="button" className="btn" onClick={onCancel} aria-label={cancelText}>
+            {cancelText}
+          </button>
+          <button type="button" className={confirmBtnClass} onClick={onConfirm} aria-label={confirmText}>
+            {confirmText}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+FILE: src/components/EmptyState.jsx
+import React from "react";
+
+export default function EmptyState({ text }) {
+  return (
+    <div className="empty" role="status" aria-live="polite">
+      {text}
+    </div>
+  );
+}

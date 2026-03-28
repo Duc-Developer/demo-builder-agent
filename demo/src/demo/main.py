@@ -26,9 +26,17 @@ def _prompt_topic() -> str:
     return topic
 
 
-def _build_inputs(topic: str) -> dict[str, str]:
+def _prompt_us() -> str:
+    us = input("Enter US: ").strip()
+    if not us:
+        raise ValueError("US is required.")
+    return us
+
+
+def _build_inputs(topic: str, us: str) -> dict[str, str]:
     return {
         "topic": topic,
+        "us": us,
         "current_year": str(datetime.now().year),
     }
 
@@ -44,56 +52,69 @@ def _require_env(name: str) -> str:
     return value
 
 
-def _publish_issue(title: str, body: str, labels: list[str]) -> None:
+def _github_api(path: str, method: str = "GET", payload: dict | None = None) -> dict | list:
     repo = _require_env("GIT_HUB_REPO")
     token = _require_env("GIT_HUB_TOKEN")
-    payload = json.dumps(
-        {
-            "title": title,
-            "body": body,
-            "labels": labels,
-        }
-    )
-    subprocess.run(
-        [
-            "curl",
-            "-sS",
-            "-X",
-            "POST",
-            f"https://api.github.com/repos/{repo}/issues",
-            "-H",
-            "Accept: application/vnd.github+json",
-            "-H",
-            f"Authorization: Bearer {token}",
-            "-H",
-            "X-GitHub-Api-Version: 2022-11-28",
-            "-d",
-            payload,
-        ],
+    command = [
+        "curl",
+        "-sS",
+        "-X",
+        method,
+        f"https://api.github.com/repos/{repo}{path}",
+        "-H",
+        "Accept: application/vnd.github+json",
+        "-H",
+        f"Authorization: Bearer {token}",
+        "-H",
+        "X-GitHub-Api-Version: 2022-11-28",
+    ]
+    if payload is not None:
+        command.extend(["-d", json.dumps(payload)])
+    result = subprocess.run(
+        command,
         check=True,
         capture_output=True,
         text=True,
     )
+    return json.loads(result.stdout)
 
 
-def _publish_agent_outputs(result: object, topic: str) -> None:
-    task_output = getattr(result, "tasks_output", None)
-    if not task_output:
+def _find_issue_by_us_label(us: str, role_label: str) -> dict:
+    us_label = f"US:{us}"
+    issues = _github_api(f"/issues?state=open&labels={us_label}")
+    for issue in issues:
+        labels = {label["name"] for label in issue.get("labels", [])}
+        if role_label in labels and us_label in labels:
+            return issue
+    return {}
+
+
+def _update_issue_by_us_label(us: str, role_label: str, title: str, body: str) -> None:
+    issue = _find_issue_by_us_label(us, role_label)
+    us_label = f"US:{us}"
+
+    if issue:
+        labels = [label["name"] for label in issue.get("labels", [])]
+        _github_api(
+            f"/issues/{issue['number']}",
+            method="PATCH",
+            payload={
+                "title": title,
+                "body": body,
+                "labels": labels,
+            },
+        )
         return
 
-    raw_output = getattr(task_output[0], "raw", str(task_output[0])).strip() if len(task_output) > 0 else ""
-    if raw_output and "Business Analytics" in getattr(task_output[0], "agent", ""):
-        _publish_issue(
-            title=f"Business Analytics - {topic}",
-            body=raw_output,
-            labels=["business-analytics", "ai-output"],
-        )
-    elif raw_output:
-        _publish_issue(
-            title=f"Manual Tester - {topic}",
-            body=raw_output,
-            labels=["manual-tester", "ai-output"],
-        )
+    _github_api(
+        "/issues",
+        method="POST",
+        payload={
+            "title": title,
+            "body": body,
+            "labels": [role_label, "ai-output", us_label],
+        },
+    )
 
 
 def _extract_frontend_app() -> None:
@@ -155,24 +176,26 @@ async def _run_parallel_crews(inputs: dict[str, str], business_context: str) -> 
 def _run_and_materialize(inputs: dict[str, str]) -> None:
     demo = Demo()
     business_result = demo.business_analytics_crew().kickoff(inputs=inputs)
-    _publish_issue(
+    _update_issue_by_us_label(
+        us=inputs["us"],
+        role_label="business-analytics",
         title=f"Business Analytics - {inputs['topic']}",
         body=str(getattr(business_result, "raw", business_result)).strip(),
-        labels=["business-analytics", "ai-output"],
     )
-    frontend_result, manual_result = asyncio.run(
+    _, manual_result = asyncio.run(
         _run_parallel_crews(inputs, str(getattr(business_result, "raw", business_result)).strip())
     )
     _extract_frontend_app()
-    _publish_issue(
+    _update_issue_by_us_label(
+        us=inputs["us"],
+        role_label="manual-tester",
         title=f"Manual Tester - {inputs['topic']}",
         body=str(getattr(manual_result, "raw", manual_result)).strip(),
-        labels=["manual-tester", "ai-output"],
     )
 
 def run():
     """Run the crew."""
-    inputs = _build_inputs(_prompt_topic())
+    inputs = _build_inputs(_prompt_topic(), _prompt_us())
 
     try:
         _run_and_materialize(inputs)
@@ -182,7 +205,7 @@ def run():
 
 def train():
     """Train the crew for a given number of iterations."""
-    inputs = _build_inputs(_prompt_topic())
+    inputs = _build_inputs(_prompt_topic(), _prompt_us())
     try:
         Demo().crew().train(n_iterations=int(sys.argv[1]), filename=sys.argv[2], inputs=inputs)
 
@@ -201,7 +224,7 @@ def replay():
 
 def test():
     """Test the crew execution and returns the results."""
-    inputs = _build_inputs(_prompt_topic())
+    inputs = _build_inputs(_prompt_topic(), _prompt_us())
 
     try:
         Demo().crew().test(n_iterations=int(sys.argv[1]), eval_llm=sys.argv[2], inputs=inputs)
@@ -224,7 +247,10 @@ def run_with_trigger():
 
     inputs = {
         "crewai_trigger_payload": trigger_payload,
-        **_build_inputs(trigger_payload.get("topic", "").strip() or _prompt_topic()),
+        **_build_inputs(
+            trigger_payload.get("topic", "").strip() or _prompt_topic(),
+            trigger_payload.get("us", "").strip() or _prompt_us(),
+        ),
     }
 
     try:

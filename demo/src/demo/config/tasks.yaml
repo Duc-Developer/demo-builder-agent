@@ -1,6 +1,7 @@
 business_analytics_task:
   description: >
     Analyze the topic "{topic}" and convert it into a frontend product brief.
+    The user story identifier is "{us}".
     Define the target users, product objective, core user journeys, key screens,
     important UI elements, functional requirements, and acceptance criteria.
     Keep the output implementation-ready for a React frontend developer.
@@ -33,9 +34,10 @@ frontend_developer_task:
 
 manual_tester_task:
   description: >
-    Review the business analysis from {business_analysis} for "{topic}" and produce a manual QA
-    plan in parallel with frontend implementation. Create test scenarios, expected outcomes,
-    edge cases, usability concerns, exploratory checks, and release risks based on the requirements.
+    Review the business analysis from {business_analysis} for "{topic}" and the user story
+    identifier "{us}", then produce a manual QA plan in parallel with frontend implementation.
+    Create test scenarios, expected outcomes, edge cases, usability concerns, exploratory checks,
+    and release risks based on the requirements.
     The markdown output must be written entirely in Vietnamese.
   expected_output: >
     A markdown QA report containing test scenarios, expected results, risk assessment,
