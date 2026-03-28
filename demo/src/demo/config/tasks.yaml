@@ -1,17 +1,43 @@
-research_task:
+business_analytics_task:
   description: >
-    Conduct a thorough research about {topic}
-    Make sure you find any interesting and relevant information given
-    the current year is {current_year}.
+    Analyze the topic "{topic}" and convert it into a frontend product brief.
+    Define the target users, product objective, core user journeys, key screens,
+    important UI elements, functional requirements, and acceptance criteria.
+    Keep the output implementation-ready for a React frontend developer.
   expected_output: >
-    A list with 10 bullet points of the most relevant information about {topic}
-  agent: researcher
+    A markdown document with sections for overview, goals, audience, user flows,
+    screen breakdown, functional requirements, and acceptance criteria.
+    Formatted as markdown without '```'.
+  agent: business_analytics
+  output_file: outputs/business_analytics.md
 
-reporting_task:
+frontend_developer_task:
   description: >
-    Review the context you got and expand each topic into a full section for a report.
-    Make sure the report is detailed and contains any and all relevant information.
+    Use the business analysis context to generate a complete ReactJS application for "{topic}".
+    Return the full application as plain text source files for a small React app that will be
+    materialized inside the folder `outputs/app`. Include all essential files needed to understand
+    and run the app, such as `package.json`, `src/main.jsx`, `src/App.jsx`, and any minimal
+    supporting files you consider necessary. The response must strictly use this manifest format
+    so each file can be written directly into `outputs/app`: `FILE: package.json` followed by
+    that file's contents, then `FILE: src/main.jsx` followed by that file's contents, and so on
+    for every file. Each file section must begin with a line starting exactly with `FILE: `.
+    Do not include explanations, markdown fences, or any text before the first `FILE: ` line
+    or after the last file content.
   expected_output: >
-    A fully fledged report with the main topics, each with a full section of information.
-    Formatted as markdown without '```'
-  agent: reporting_analyst
+    Raw ReactJS app source code only in strict multi-file manifest format, for example:
+    `FILE: package.json`, `FILE: src/main.jsx`, `FILE: src/App.jsx`.
+    No markdown, no commentary, and no surrounding code fences.
+  agent: frontend_developer
+  output_file: outputs/app/APP_SOURCE.txt
+
+manual_tester_task:
+  description: >
+    Review the business analysis and the generated frontend source code for "{topic}".
+    Produce a manual QA report with test scenarios, expected outcomes, edge cases,
+    usability concerns, and any issues or risks found in the implementation.
+  expected_output: >
+    A markdown QA report containing test scenarios, expected results, risk assessment,
+    and a concise defect list if any issues are identified.
+    Formatted as markdown without '```'.
+  agent: manual_tester
+  output_file: outputs/manual_tester.md
