@@ -7,3 +7,4 @@ export default function EmptyState({ text }) {
     </div>
   );
 }
+

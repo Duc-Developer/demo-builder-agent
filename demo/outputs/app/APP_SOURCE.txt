@@ -1,3 +1,17 @@
+FILE: index.html
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Todo</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
+
 FILE: package.json
 {
   "name": "todoapp-don-gian",
@@ -26,20 +40,6 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   plugins: [react()],
 });
-
-FILE: index.html
-<!doctype html>
-<html lang="vi">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Todo</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
-</html>
 
 FILE: src/main.jsx
 import React from "react";
@@ -423,8 +423,678 @@ a { color: inherit; }
   .search { min-width: 100%; }
 }
 
+FILE: src/components/AppLayout.jsx
+import React from "react";
+
+export default function AppLayout({ children }) {
+  return <div className="container">{children}</div>;
+}
+
+FILE: src/components/ClearCompletedButton.jsx
+import React from "react";
+
+export default function ClearCompletedButton({ completed, onClick }) {
+  if (!completed) return null;
+  return (
+    <button
+      type="button"
+      className="btn danger"
+      onClick={onClick}
+      aria-label="Xóa các việc đã hoàn thành"
+    >
+      Xóa các việc đã hoàn thành
+    </button>
+  );
+}
+
+FILE: src/components/ConfirmDialog.jsx
+import React, { useEffect, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
+import { getFocusableElements } from "../utils/dom.js";
+
+export default function ConfirmDialog({
+  open,
+  title,
+  description,
+  confirmText = "Xác nhận",
+  cancelText = "Hủy",
+  tone = "danger",
+  onConfirm,
+  onCancel,
+}) {
+  const dialogRef = useRef(null);
+  const lastActiveRef = useRef(null);
+
+  const confirmBtnClass = useMemo(() => {
+    if (tone === "danger") return "btn danger";
+    if (tone === "primary") return "btn primary";
+    return "btn";
+  }, [tone]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    lastActiveRef.current = document.activeElement;
+
+    const dialogEl = dialogRef.current;
+    if (!dialogEl) return;
+
+    const focusables = getFocusableElements(dialogEl);
+    const initial = focusables[0] || dialogEl;
+    const id = requestAnimationFrame(() => initial.focus());
+
+    function onKeyDown(e) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onCancel?.();
+        return;
+      }
+      if (e.key !== "Tab") return;
+
+      const els = getFocusableElements(dialogEl);
+      if (els.length === 0) return;
+
+      const first = els[0];
+      const last = els[els.length - 1];
+
+      if (e.shiftKey) {
+        if (document.activeElement === first || document.activeElement === dialogEl) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    }
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      cancelAnimationFrame(id);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open, onCancel]);
+
+  useEffect(() => {
+    if (open) return;
+    const prev = lastActiveRef.current;
+    if (prev && typeof prev.focus === "function") {
+      requestAnimationFrame(() => prev.focus());
+    }
+  }, [open]);
+
+  if (!open) return null;
+
+  return createPortal(
+    <div
+      className="backdrop"
+      role="presentation"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onCancel?.();
+      }}
+    >
+      <div
+        className="dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        ref={dialogRef}
+        tabIndex={-1}
+      >
+        <div className="dialog-head">
+          <h2 className="dialog-title">{title}</h2>
+        </div>
+        <div className="dialog-body">{description}</div>
+        <div className="dialog-actions">
+          <button type="button" className="btn" onClick={onCancel} aria-label={cancelText}>
+            {cancelText}
+          </button>
+          <button type="button" className={confirmBtnClass} onClick={onConfirm} aria-label={confirmText}>
+            {confirmText}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+FILE: src/components/Counter.jsx
+import React from "react";
+
+export default function Counter({ remaining }) {
+  return (
+    <div className="small" aria-label={`Còn lại: ${remaining}`}>
+      Còn lại: <strong style={{ color: "rgba(255,255,255,0.92)" }}>{remaining}</strong>
+    </div>
+  );
+}
+
+FILE: src/components/EmptyState.jsx
+import React from "react";
+
+export default function EmptyState({ text }) {
+  return (
+    <div className="empty" role="status" aria-live="polite">
+      {text}
+    </div>
+  );
+}
+
+FILE: src/components/FilterTabs.jsx
+import React from "react";
+import { FILTERS } from "../todo/constants.js";
+
+export default function FilterTabs({ value, onChange }) {
+  return (
+    <div className="tabs" role="tablist" aria-label="Bộ lọc trạng thái">
+      <button
+        type="button"
+        className="tab"
+        role="tab"
+        aria-selected={value === FILTERS.all}
+        onClick={() => onChange(FILTERS.all)}
+      >
+        Tất cả
+      </button>
+      <button
+        type="button"
+        className="tab"
+        role="tab"
+        aria-selected={value === FILTERS.active}
+        onClick={() => onChange(FILTERS.active)}
+      >
+        Đang làm
+      </button>
+      <button
+        type="button"
+        className="tab"
+        role="tab"
+        aria-selected={value === FILTERS.completed}
+        onClick={() => onChange(FILTERS.completed)}
+      >
+        Đã xong
+      </button>
+    </div>
+  );
+}
+
+FILE: src/components/SearchBox.jsx
+import React from "react";
+
+export default function SearchBox({ value, onChange }) {
+  return (
+    <div className="search" aria-label="Tìm kiếm">
+      <input
+        className="input"
+        type="text"
+        placeholder="Tìm kiếm…"
+        aria-label="Tìm kiếm công việc"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      {value ? (
+        <button type="button" className="clear-x" aria-label="Xóa tìm kiếm" onClick={() => onChange("")}>
+          ×
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+FILE: src/components/TodoControls.jsx
+import React from "react";
+import FilterTabs from "./FilterTabs.jsx";
+import SearchBox from "./SearchBox.jsx";
+import Counter from "./Counter.jsx";
+import ClearCompletedButton from "./ClearCompletedButton.jsx";
+
+export default function TodoControls({
+  filter,
+  onChangeFilter,
+  searchQuery,
+  onChangeSearch,
+  remaining,
+  completed,
+  onClearCompleted,
+}) {
+  return (
+    <div className="controls" aria-label="Thanh điều khiển">
+      <div className="controls-left">
+        <FilterTabs value={filter} onChange={onChangeFilter} />
+        <SearchBox value={searchQuery} onChange={onChangeSearch} />
+      </div>
+
+      <div className="controls-left" style={{ justifyContent: "flex-end" }}>
+        <Counter remaining={remaining} />
+        <ClearCompletedButton completed={completed} onClick={onClearCompleted} />
+      </div>
+    </div>
+  );
+}
+
+FILE: src/components/TodoInput.jsx
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { TITLE_MAX_LENGTH } from "../todo/constants.js";
+
+function validateTitle(title) {
+  const trimmed = title.trim();
+  if (!trimmed) return { ok: false, error: "Tiêu đề không được để trống.", value: "" };
+  if (trimmed.length > TITLE_MAX_LENGTH)
+    return { ok: false, error: `Tiêu đề tối đa ${TITLE_MAX_LENGTH} ký tự`, value: trimmed };
+  return { ok: true, error: "", value: trimmed };
+}
+
+export default function TodoInput({ onAdd }) {
+  const [value, setValue] = useState("");
+  const [error, setError] = useState("");
+  const inputRef = useRef(null);
+
+  const remainingChars = useMemo(() => TITLE_MAX_LENGTH - value.trim().length, [value]);
+
+  useEffect(() => {
+    const id = requestAnimationFrame(() => inputRef.current?.focus());
+    return () => cancelAnimationFrame(id);
+  }, []);
+
+  function submit() {
+    const res = validateTitle(value);
+    if (!res.ok) {
+      setError(res.error);
+      return;
+    }
+    onAdd(res.value);
+    setValue("");
+    setError("");
+    inputRef.current?.focus();
+  }
+
+  return (
+    <div>
+      <div className="row">
+        <input
+          ref={inputRef}
+          className="input"
+          type="text"
+          value={value}
+          placeholder="Thêm việc cần làm…"
+          aria-label="Thêm việc cần làm"
+          maxLength={TITLE_MAX_LENGTH + 30}
+          onChange={(e) => {
+            setValue(e.target.value);
+            if (error) setError("");
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              submit();
+            }
+          }}
+        />
+        <button className="btn primary" type="button" onClick={submit} disabled={value.trim().length === 0}>
+          Thêm
+        </button>
+      </div>
+
+      <div className="row" style={{ justifyContent: "space-between", marginTop: 8 }}>
+        <div className="small" aria-live="polite">
+          {value.trim().length > 0 ? `Còn ${Math.max(0, remainingChars)} ký tự` : " "}
+        </div>
+        <div className="small">{value.trim().length > TITLE_MAX_LENGTH ? "Vượt giới hạn" : " "}</div>
+      </div>
+
+      {error ? (
+        <div className="error" role="alert">
+          {error}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+FILE: src/components/TodoItemRow.jsx
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { TITLE_MAX_LENGTH } from "../todo/constants.js";
+
+function formatTime(ts) {
+  try {
+    return new Intl.DateTimeFormat("vi-VN", {
+      hour: "2-digit",
+      minute: "2-digit",
+      day: "2-digit",
+      month: "2-digit",
+    }).format(new Date(ts));
+  } catch {
+    return new Date(ts).toLocaleString();
+  }
+}
+
+function validateTitle(title) {
+  const trimmed = title.trim();
+  if (!trimmed) return { ok: false, error: "Tiêu đề không được để trống.", value: "" };
+  if (trimmed.length > TITLE_MAX_LENGTH)
+    return { ok: false, error: `Tiêu đề tối đa ${TITLE_MAX_LENGTH} ký tự`, value: trimmed };
+  return { ok: true, error: "", value: trimmed };
+}
+
+export default function TodoItemRow({ todo, onToggle, onEdit, onDelete }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [draft, setDraft] = useState(todo.title);
+  const [error, setError] = useState("");
+  const editRef = useRef(null);
+
+  const createdLabel = useMemo(() => formatTime(todo.createdAt), [todo.createdAt]);
+
+  useEffect(() => {
+    if (!isEditing) return;
+    setDraft(todo.title);
+    setError("");
+    const id = requestAnimationFrame(() => editRef.current?.focus());
+    return () => cancelAnimationFrame(id);
+  }, [isEditing, todo.title]);
+
+  function startEdit() {
+    setIsEditing(true);
+  }
+
+  function cancelEdit() {
+    setIsEditing(false);
+    setDraft(todo.title);
+    setError("");
+  }
+
+  function commitEdit() {
+    const res = validateTitle(draft);
+    if (!res.ok) {
+      setError(res.error);
+      return false;
+    }
+    if (res.value !== todo.title) {
+      onEdit(todo.id, res.value);
+    }
+    setIsEditing(false);
+    setError("");
+    return true;
+  }
+
+  return (
+    <>
+      <input
+        className="checkbox"
+        type="checkbox"
+        checked={todo.completed}
+        aria-label={todo.completed ? "Bỏ hoàn thành" : "Đánh dấu hoàn thành"}
+        onChange={() => onToggle(todo.id)}
+      />
+
+      <div>
+        {!isEditing ? (
+          <>
+            <div
+              className={todo.completed ? "title completed" : "title"}
+              onDoubleClick={startEdit}
+              role="button"
+              tabIndex={0}
+              aria-label="Tiêu đề công việc (double click để sửa)"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") startEdit();
+              }}
+              title="Double click để sửa"
+            >
+              {todo.title}
+            </div>
+            <div className="meta" aria-label="Thời gian tạo">
+              Tạo lúc: {createdLabel}
+            </div>
+          </>
+        ) : (
+          <div className="inline-edit" aria-label="Chỉnh sửa công việc">
+            <input
+              ref={editRef}
+              className="input"
+              value={draft}
+              aria-label="Nội dung chỉnh sửa"
+              onChange={(e) => {
+                setDraft(e.target.value);
+                if (error) setError("");
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  commitEdit();
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  cancelEdit();
+                }
+              }}
+              onBlur={() => {
+                commitEdit();
+              }}
+            />
+
+            {error ? (
+              <div className="error" role="alert">
+                {error}
+              </div>
+            ) : null}
+
+            <div className="inline-edit-actions">
+              <button type="button" className="btn primary" onMouseDown={(e) => e.preventDefault()} onClick={commitEdit}>
+                Lưu
+              </button>
+              <button type="button" className="btn" onMouseDown={(e) => e.preventDefault()} onClick={cancelEdit}>
+                Hủy
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="item-actions" aria-label="Hành động">
+        {!isEditing ? (
+          <>
+            <button type="button" className="btn" onClick={startEdit} aria-label="Sửa công việc">
+              Sửa
+            </button>
+            <button
+              type="button"
+              className="btn danger"
+              onClick={() => onDelete(todo)}
+              aria-label="Xóa công việc"
+            >
+              Xóa
+            </button>
+          </>
+        ) : null}
+      </div>
+    </>
+  );
+}
+
+FILE: src/components/TodoList.jsx
+import React from "react";
+import TodoItemRow from "./TodoItemRow.jsx";
+
+export default function TodoList({ todos, onToggle, onEdit, onDelete }) {
+  return (
+    <ul className="list" aria-label="Danh sách công việc">
+      {todos.map((t) => (
+        <li key={t.id} className="item">
+          <TodoItemRow todo={t} onToggle={onToggle} onEdit={onEdit} onDelete={onDelete} />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+FILE: src/pages/TodoPage.jsx
+import React, { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { initialState, todoReducer } from "../todo/reducer.js";
+import { readTodos, writeTodos } from "../todo/storage.js";
+import { completedCount, remainingCount, visibleTodos } from "../todo/selectors.js";
+import { createId } from "../utils/id.js";
+
+import TodoInput from "../components/TodoInput.jsx";
+import TodoControls from "../components/TodoControls.jsx";
+import TodoList from "../components/TodoList.jsx";
+import EmptyState from "../components/EmptyState.jsx";
+import ConfirmDialog from "../components/ConfirmDialog.jsx";
+
+function formatDateVi(d = new Date()) {
+  try {
+    return new Intl.DateTimeFormat("vi-VN", { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric" }).format(d);
+  } catch {
+    return d.toLocaleDateString();
+  }
+}
+
+export default function TodoPage() {
+  const [state, dispatch] = useReducer(todoReducer, initialState);
+  const didInitRef = useRef(false);
+
+  const [confirmState, setConfirmState] = useState(
+    /** @type {null | { kind: "deleteOne"; id: string; title: string } | { kind: "clearCompleted"; count: number }} */ (null)
+  );
+
+  useEffect(() => {
+    if (didInitRef.current) return;
+    didInitRef.current = true;
+
+    const todos = readTodos();
+    dispatch({ type: "LOAD_TODOS", todos });
+  }, []);
+
+  useEffect(() => {
+    if (!didInitRef.current) return;
+    writeTodos(state.todos);
+  }, [state.todos]);
+
+  const remaining = useMemo(() => remainingCount(state.todos), [state.todos]);
+  const completed = useMemo(() => completedCount(state.todos), [state.todos]);
+
+  const visible = useMemo(
+    () => visibleTodos(state.todos, state.filter, state.searchQuery),
+    [state.todos, state.filter, state.searchQuery]
+  );
+
+  const showEmptyNoTodos = state.todos.length === 0;
+  const showEmptyNoMatch = state.todos.length > 0 && visible.length === 0;
+
+  function addTodo(rawTitle) {
+    const now = Date.now();
+    const todo = {
+      id: createId(),
+      title: rawTitle,
+      completed: false,
+      createdAt: now,
+      updatedAt: now,
+    };
+    dispatch({ type: "ADD_TODO", todo });
+  }
+
+  function onRequestDelete(todo) {
+    setConfirmState({ kind: "deleteOne", id: todo.id, title: todo.title });
+  }
+
+  function onConfirmDelete() {
+    if (!confirmState || confirmState.kind !== "deleteOne") return;
+    dispatch({ type: "DELETE_TODO", id: confirmState.id });
+    setConfirmState(null);
+  }
+
+  function onRequestClearCompleted() {
+    setConfirmState({ kind: "clearCompleted", count: completed });
+  }
+
+  function onConfirmClearCompleted() {
+    dispatch({ type: "CLEAR_COMPLETED" });
+    setConfirmState(null);
+  }
+
+  return (
+    <div className="card">
+      <div className="header">
+        <h1>Todo</h1>
+        <div className="date" aria-label="Ngày hiện tại">
+          {formatDateVi(new Date())}
+        </div>
+      </div>
+
+      {state.error ? (
+        <div className="banner" role="alert">
+          {state.error}
+        </div>
+      ) : null}
+
+      <div className="section">
+        <TodoInput onAdd={addTodo} />
+        <div className="kbd-hint">Mẹo: Enter để thêm • Double click tiêu đề để sửa • Esc để hủy khi đang sửa</div>
+      </div>
+
+      <div className="hr" />
+
+      <div className="section">
+        <TodoControls
+          filter={state.filter}
+          onChangeFilter={(filter) => dispatch({ type: "SET_FILTER", filter })}
+          searchQuery={state.searchQuery}
+          onChangeSearch={(searchQuery) => dispatch({ type: "SET_SEARCH_QUERY", searchQuery })}
+          remaining={remaining}
+          completed={completed}
+          onClearCompleted={onRequestClearCompleted}
+        />
+      </div>
+
+      <div className="hr" />
+
+      {showEmptyNoTodos ? (
+        <EmptyState text="Chưa có việc nào. Thêm việc đầu tiên!" />
+      ) : showEmptyNoMatch ? (
+        <EmptyState text="Không có việc phù hợp." />
+      ) : (
+        <TodoList
+          todos={visible}
+          onToggle={(id) => dispatch({ type: "TOGGLE_TODO", id })}
+          onEdit={(id, title) => dispatch({ type: "EDIT_TODO", id, title, updatedAt: Date.now() })}
+          onDelete={onRequestDelete}
+        />
+      )}
+
+      <ConfirmDialog
+        open={confirmState !== null}
+        title={
+          confirmState?.kind === "deleteOne"
+            ? "Xóa công việc?"
+            : confirmState?.kind === "clearCompleted"
+              ? "Xóa các việc đã hoàn thành?"
+              : ""
+        }
+        description={
+          confirmState?.kind === "deleteOne"
+            ? `Bạn có chắc muốn xóa “${confirmState.title}”? Thao tác này không thể hoàn tác.`
+            : confirmState?.kind === "clearCompleted"
+              ? `Bạn có chắc muốn xóa ${confirmState.count} công việc đã hoàn thành?`
+              : ""
+        }
+        confirmText="Xóa"
+        cancelText="Hủy"
+        tone="danger"
+        onCancel={() => setConfirmState(null)}
+        onConfirm={() => {
+          if (confirmState?.kind === "deleteOne") onConfirmDelete();
+          else if (confirmState?.kind === "clearCompleted") onConfirmClearCompleted();
+        }}
+      />
+    </div>
+  );
+}
+
 FILE: src/todo/constants.js
-export const STORAGE_KEY = "todoapp.todos.v1";
+export const STORAGE_KEY = "todoapp.tasks.v1";
+export const LEGACY_STORAGE_KEY = "todoapp.todos.v1";
+
 export const TITLE_MAX_LENGTH = 200;
 
 export const FILTERS = /** @type {const} */ ({
@@ -432,67 +1102,6 @@ export const FILTERS = /** @type {const} */ ({
   active: "active",
   completed: "completed",
 });
-
-FILE: src/todo/storage.js
-import { STORAGE_KEY } from "./constants.js";
-
-/**
- * @returns {import("./types").TodoItem[]}
- */
-export function readTodos() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    // Minimal shape validation
-    return parsed
-      .filter((t) => t && typeof t === "object")
-      .map((t) => ({
-        id: String(t.id ?? ""),
-        title: String(t.title ?? ""),
-        completed: Boolean(t.completed),
-        createdAt: Number(t.createdAt ?? Date.now()),
-        updatedAt: Number(t.updatedAt ?? t.createdAt ?? Date.now()),
-      }))
-      .filter((t) => t.id && t.title)
-      .sort((a, b) => b.createdAt - a.createdAt);
-  } catch (e) {
-    // Fail-safe: do not crash app if JSON is invalid
-    console.warn("[Todo] Failed to parse localStorage, fallback to empty list.", e);
-    return [];
-  }
-}
-
-/**
- * @param {import("./types").TodoItem[]} todos
- */
-export function writeTodos(todos) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(todos));
-  } catch (e) {
-    console.warn("[Todo] Failed to write localStorage.", e);
-  }
-}
-
-FILE: src/todo/types.d.ts
-export type TodoItem = {
-  id: string;
-  title: string;
-  completed: boolean;
-  createdAt: number;
-  updatedAt: number;
-};
-
-export type Filter = "all" | "active" | "completed";
-
-export type State = {
-  todos: TodoItem[];
-  filter: Filter;
-  searchQuery: string;
-  editingId?: string;
-  error: string | null;
-};
 
 FILE: src/todo/reducer.js
 import { FILTERS } from "./constants.js";
@@ -633,14 +1242,90 @@ export function visibleTodos(todos, filter, searchQuery) {
   return todos.filter((t) => byFilter(t) && bySearch(t));
 }
 
-FILE: src/utils/id.js
-export function createId() {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  // Fallback (not perfect, but ok for local-only MVP)
-  return "id_" + Math.random().toString(16).slice(2) + "_" + Date.now().toString(16);
+FILE: src/todo/storage.js
+import { LEGACY_STORAGE_KEY, STORAGE_KEY } from "./constants.js";
+
+/**
+ * @param {unknown} input
+ * @returns {import("./types").TodoItem[]}
+ */
+function normalizeTodos(input) {
+  if (!Array.isArray(input)) return [];
+  return input
+    .filter((t) => t && typeof t === "object")
+    .map((t) => ({
+      id: String(t.id ?? ""),
+      title: String(t.title ?? ""),
+      completed: Boolean(t.completed),
+      createdAt: Number(t.createdAt ?? Date.now()),
+      updatedAt: Number(t.updatedAt ?? t.createdAt ?? Date.now()),
+    }))
+    .filter((t) => t.id && t.title)
+    .sort((a, b) => b.createdAt - a.createdAt);
 }
+
+/**
+ * @returns {import("./types").TodoItem[]}
+ */
+export function readTodos() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return normalizeTodos(parsed);
+    }
+
+    // Migration from legacy key (older builds)
+    const legacyRaw = localStorage.getItem(LEGACY_STORAGE_KEY);
+    if (!legacyRaw) return [];
+
+    const legacyParsed = JSON.parse(legacyRaw);
+    const todos = normalizeTodos(legacyParsed);
+
+    // Best-effort: write to new key and optionally cleanup legacy
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(todos));
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
+    } catch {
+      // ignore
+    }
+
+    return todos;
+  } catch (e) {
+    console.warn("[Todo] Failed to parse localStorage, fallback to empty list.", e);
+    return [];
+  }
+}
+
+/**
+ * @param {import("./types").TodoItem[]} todos
+ */
+export function writeTodos(todos) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(todos));
+  } catch (e) {
+    console.warn("[Todo] Failed to write localStorage.", e);
+  }
+}
+
+FILE: src/todo/types.d.ts
+export type TodoItem = {
+  id: string;
+  title: string;
+  completed: boolean;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type Filter = "all" | "active" | "completed";
+
+export type State = {
+  todos: TodoItem[];
+  filter: Filter;
+  searchQuery: string;
+  editingId?: string;
+  error: string | null;
+};
 
 FILE: src/utils/dom.js
 /**
@@ -660,668 +1345,10 @@ export function getFocusableElements(el) {
   );
 }
 
-FILE: src/components/AppLayout.jsx
-import React from "react";
-
-export default function AppLayout({ children }) {
-  return <div className="container">{children}</div>;
-}
-
-FILE: src/pages/TodoPage.jsx
-import React, { useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { initialState, todoReducer } from "../todo/reducer.js";
-import { readTodos, writeTodos } from "../todo/storage.js";
-import { completedCount, remainingCount, visibleTodos } from "../todo/selectors.js";
-import { FILTERS } from "../todo/constants.js";
-import { createId } from "../utils/id.js";
-
-import TodoInput from "../components/TodoInput.jsx";
-import TodoControls from "../components/TodoControls.jsx";
-import TodoList from "../components/TodoList.jsx";
-import EmptyState from "../components/EmptyState.jsx";
-import ConfirmDialog from "../components/ConfirmDialog.jsx";
-
-function formatDateVi(d = new Date()) {
-  // Lightweight Vietnamese date display (no heavy i18n)
-  try {
-    return new Intl.DateTimeFormat("vi-VN", { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric" }).format(d);
-  } catch {
-    return d.toLocaleDateString();
+FILE: src/utils/id.js
+export function createId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
   }
-}
-
-export default function TodoPage() {
-  const [state, dispatch] = useReducer(todoReducer, initialState);
-  const didInitRef = useRef(false);
-
-  const [confirmState, setConfirmState] = useState(
-    /** @type {null | { kind: "deleteOne"; id: string; title: string } | { kind: "clearCompleted"; count: number }} */ (null)
-  );
-
-  // Load from localStorage once
-  useEffect(() => {
-    if (didInitRef.current) return;
-    didInitRef.current = true;
-
-    const todos = readTodos();
-    dispatch({ type: "LOAD_TODOS", todos });
-  }, []);
-
-  // Persist on todos change
-  useEffect(() => {
-    // Do not write before init load is complete
-    if (!didInitRef.current) return;
-    writeTodos(state.todos);
-  }, [state.todos]);
-
-  const remaining = useMemo(() => remainingCount(state.todos), [state.todos]);
-  const completed = useMemo(() => completedCount(state.todos), [state.todos]);
-
-  const visible = useMemo(
-    () => visibleTodos(state.todos, state.filter, state.searchQuery),
-    [state.todos, state.filter, state.searchQuery]
-  );
-
-  const showEmptyNoTodos = state.todos.length === 0;
-  const showEmptyNoMatch = state.todos.length > 0 && visible.length === 0;
-
-  function addTodo(rawTitle) {
-    const now = Date.now();
-    const todo = {
-      id: createId(),
-      title: rawTitle,
-      completed: false,
-      createdAt: now,
-      updatedAt: now,
-    };
-    dispatch({ type: "ADD_TODO", todo });
-  }
-
-  function onRequestDelete(todo) {
-    setConfirmState({ kind: "deleteOne", id: todo.id, title: todo.title });
-  }
-
-  function onConfirmDelete() {
-    if (!confirmState || confirmState.kind !== "deleteOne") return;
-    dispatch({ type: "DELETE_TODO", id: confirmState.id });
-    setConfirmState(null);
-  }
-
-  function onRequestClearCompleted() {
-    setConfirmState({ kind: "clearCompleted", count: completed });
-  }
-
-  function onConfirmClearCompleted() {
-    dispatch({ type: "CLEAR_COMPLETED" });
-    setConfirmState(null);
-  }
-
-  return (
-    <div className="card">
-      <div className="header">
-        <h1>Todo</h1>
-        <div className="date" aria-label="Ngày hiện tại">
-          {formatDateVi(new Date())}
-        </div>
-      </div>
-
-      {state.error ? <div className="banner" role="alert">{state.error}</div> : null}
-
-      <div className="section">
-        <TodoInput onAdd={addTodo} />
-        <div className="kbd-hint">
-          Mẹo: Enter để thêm • Double click tiêu đề để sửa • Esc để hủy khi đang sửa
-        </div>
-      </div>
-
-      <div className="hr" />
-
-      <div className="section">
-        <TodoControls
-          filter={state.filter}
-          onChangeFilter={(filter) => dispatch({ type: "SET_FILTER", filter })}
-          searchQuery={state.searchQuery}
-          onChangeSearch={(searchQuery) => dispatch({ type: "SET_SEARCH_QUERY", searchQuery })}
-          remaining={remaining}
-          completed={completed}
-          onClearCompleted={onRequestClearCompleted}
-        />
-      </div>
-
-      <div className="hr" />
-
-      {showEmptyNoTodos ? (
-        <EmptyState text="Chưa có công việc nào. Thêm việc mới để bắt đầu." />
-      ) : showEmptyNoMatch ? (
-        <EmptyState text="Không tìm thấy công việc phù hợp." />
-      ) : (
-        <TodoList
-          todos={visible}
-          onToggle={(id) => dispatch({ type: "TOGGLE_TODO", id })}
-          onEdit={(id, title) => dispatch({ type: "EDIT_TODO", id, title, updatedAt: Date.now() })}
-          onDelete={onRequestDelete}
-        />
-      )}
-
-      <ConfirmDialog
-        open={confirmState !== null}
-        title={
-          confirmState?.kind === "deleteOne"
-            ? "Xóa công việc?"
-            : confirmState?.kind === "clearCompleted"
-              ? "Xóa các việc đã xong?"
-              : ""
-        }
-        description={
-          confirmState?.kind === "deleteOne"
-            ? `Bạn có chắc muốn xóa “${confirmState.title}”? Thao tác này không thể hoàn tác.`
-            : confirmState?.kind === "clearCompleted"
-              ? `Bạn có chắc muốn xóa ${confirmState.count} công việc đã hoàn thành?`
-              : ""
-        }
-        confirmText={confirmState?.kind === "deleteOne" ? "Xóa" : "Xóa"}
-        cancelText="Hủy"
-        tone="danger"
-        onCancel={() => setConfirmState(null)}
-        onConfirm={() => {
-          if (confirmState?.kind === "deleteOne") onConfirmDelete();
-          else if (confirmState?.kind === "clearCompleted") onConfirmClearCompleted();
-        }}
-      />
-    </div>
-  );
-}
-
-FILE: src/components/TodoInput.jsx
-import React, { useMemo, useRef, useState } from "react";
-import { TITLE_MAX_LENGTH } from "../todo/constants.js";
-
-function validateTitle(title) {
-  const trimmed = title.trim();
-  if (!trimmed) return { ok: false, error: "Vui lòng nhập công việc", value: "" };
-  if (trimmed.length > TITLE_MAX_LENGTH)
-    return { ok: false, error: `Tiêu đề tối đa ${TITLE_MAX_LENGTH} ký tự`, value: trimmed };
-  return { ok: true, error: "", value: trimmed };
-}
-
-export default function TodoInput({ onAdd }) {
-  const [value, setValue] = useState("");
-  const [error, setError] = useState("");
-  const inputRef = useRef(null);
-
-  const remainingChars = useMemo(() => TITLE_MAX_LENGTH - value.trim().length, [value]);
-
-  function submit() {
-    const res = validateTitle(value);
-    if (!res.ok) {
-      setError(res.error);
-      return;
-    }
-    onAdd(res.value);
-    setValue("");
-    setError("");
-    // keep focus for rapid entry
-    inputRef.current?.focus();
-  }
-
-  return (
-    <div>
-      <div className="row">
-        <input
-          ref={inputRef}
-          className="input"
-          type="text"
-          value={value}
-          placeholder="Thêm việc cần làm…"
-          aria-label="Thêm việc cần làm"
-          maxLength={TITLE_MAX_LENGTH + 30}
-          onChange={(e) => {
-            setValue(e.target.value);
-            if (error) setError("");
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              submit();
-            }
-          }}
-        />
-        <button className="btn primary" type="button" onClick={submit} disabled={value.trim().length === 0}>
-          Thêm
-        </button>
-      </div>
-
-      <div className="row" style={{ justifyContent: "space-between", marginTop: 8 }}>
-        <div className="small" aria-live="polite">
-          {value.trim().length > 0 ? `Còn ${Math.max(0, remainingChars)} ký tự` : " "}
-        </div>
-        <div className="small">{value.trim().length > TITLE_MAX_LENGTH ? "Vượt giới hạn" : " "}</div>
-      </div>
-
-      {error ? (
-        <div className="error" role="alert">
-          {error}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-FILE: src/components/TodoControls.jsx
-import React from "react";
-import FilterTabs from "./FilterTabs.jsx";
-import SearchBox from "./SearchBox.jsx";
-import Counter from "./Counter.jsx";
-import ClearCompletedButton from "./ClearCompletedButton.jsx";
-
-export default function TodoControls({
-  filter,
-  onChangeFilter,
-  searchQuery,
-  onChangeSearch,
-  remaining,
-  completed,
-  onClearCompleted,
-}) {
-  return (
-    <div className="controls" aria-label="Thanh điều khiển">
-      <div className="controls-left">
-        <FilterTabs value={filter} onChange={onChangeFilter} />
-        <SearchBox value={searchQuery} onChange={onChangeSearch} />
-      </div>
-
-      <div className="controls-left" style={{ justifyContent: "flex-end" }}>
-        <Counter remaining={remaining} />
-        <ClearCompletedButton completed={completed} onClick={onClearCompleted} />
-      </div>
-    </div>
-  );
-}
-
-FILE: src/components/FilterTabs.jsx
-import React from "react";
-import { FILTERS } from "../todo/constants.js";
-
-export default function FilterTabs({ value, onChange }) {
-  return (
-    <div className="tabs" role="tablist" aria-label="Bộ lọc trạng thái">
-      <button
-        type="button"
-        className="tab"
-        role="tab"
-        aria-selected={value === FILTERS.all}
-        onClick={() => onChange(FILTERS.all)}
-      >
-        Tất cả
-      </button>
-      <button
-        type="button"
-        className="tab"
-        role="tab"
-        aria-selected={value === FILTERS.active}
-        onClick={() => onChange(FILTERS.active)}
-      >
-        Đang làm
-      </button>
-      <button
-        type="button"
-        className="tab"
-        role="tab"
-        aria-selected={value === FILTERS.completed}
-        onClick={() => onChange(FILTERS.completed)}
-      >
-        Đã xong
-      </button>
-    </div>
-  );
-}
-
-FILE: src/components/SearchBox.jsx
-import React from "react";
-
-export default function SearchBox({ value, onChange }) {
-  return (
-    <div className="search" aria-label="Tìm kiếm">
-      <input
-        className="input"
-        type="text"
-        placeholder="Tìm kiếm…"
-        aria-label="Tìm kiếm công việc"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      />
-      {value ? (
-        <button type="button" className="clear-x" aria-label="Xóa tìm kiếm" onClick={() => onChange("")}>
-          ×
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
-FILE: src/components/Counter.jsx
-import React from "react";
-
-export default function Counter({ remaining }) {
-  return (
-    <div className="small" aria-label={`Còn lại: ${remaining}`}>
-      Còn lại: <strong style={{ color: "rgba(255,255,255,0.92)" }}>{remaining}</strong>
-    </div>
-  );
-}
-
-FILE: src/components/ClearCompletedButton.jsx
-import React from "react";
-
-export default function ClearCompletedButton({ completed, onClick }) {
-  if (!completed) return null;
-  return (
-    <button type="button" className="btn danger" onClick={onClick} aria-label="Xóa việc đã xong">
-      Xóa việc đã xong
-    </button>
-  );
-}
-
-FILE: src/components/TodoList.jsx
-import React from "react";
-import TodoItemRow from "./TodoItemRow.jsx";
-
-export default function TodoList({ todos, onToggle, onEdit, onDelete }) {
-  return (
-    <ul className="list" aria-label="Danh sách công việc">
-      {todos.map((t) => (
-        <li key={t.id} className="item">
-          <TodoItemRow todo={t} onToggle={onToggle} onEdit={onEdit} onDelete={onDelete} />
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-FILE: src/components/TodoItemRow.jsx
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { TITLE_MAX_LENGTH } from "../todo/constants.js";
-
-function formatTime(ts) {
-  try {
-    return new Intl.DateTimeFormat("vi-VN", {
-      hour: "2-digit",
-      minute: "2-digit",
-      day: "2-digit",
-      month: "2-digit",
-    }).format(new Date(ts));
-  } catch {
-    return new Date(ts).toLocaleString();
-  }
-}
-
-function validateTitle(title) {
-  const trimmed = title.trim();
-  if (!trimmed) return { ok: false, error: "Vui lòng nhập công việc", value: "" };
-  if (trimmed.length > TITLE_MAX_LENGTH)
-    return { ok: false, error: `Tiêu đề tối đa ${TITLE_MAX_LENGTH} ký tự`, value: trimmed };
-  return { ok: true, error: "", value: trimmed };
-}
-
-export default function TodoItemRow({ todo, onToggle, onEdit, onDelete }) {
-  const [isEditing, setIsEditing] = useState(false);
-  const [draft, setDraft] = useState(todo.title);
-  const [error, setError] = useState("");
-  const editRef = useRef(null);
-
-  const createdLabel = useMemo(() => formatTime(todo.createdAt), [todo.createdAt]);
-
-  useEffect(() => {
-    if (!isEditing) return;
-    setDraft(todo.title);
-    setError("");
-    // focus next tick for consistent behavior
-    const id = requestAnimationFrame(() => editRef.current?.focus());
-    return () => cancelAnimationFrame(id);
-  }, [isEditing, todo.title]);
-
-  function startEdit() {
-    setIsEditing(true);
-  }
-
-  function cancelEdit() {
-    setIsEditing(false);
-    setDraft(todo.title);
-    setError("");
-  }
-
-  function commitEdit() {
-    const res = validateTitle(draft);
-    if (!res.ok) {
-      setError(res.error);
-      return false;
-    }
-    if (res.value !== todo.title) {
-      onEdit(todo.id, res.value);
-    }
-    setIsEditing(false);
-    setError("");
-    return true;
-  }
-
-  return (
-    <>
-      <input
-        className="checkbox"
-        type="checkbox"
-        checked={todo.completed}
-        aria-label={todo.completed ? "Bỏ hoàn thành" : "Đánh dấu hoàn thành"}
-        onChange={() => onToggle(todo.id)}
-      />
-
-      <div>
-        {!isEditing ? (
-          <>
-            <div
-              className={todo.completed ? "title completed" : "title"}
-              onDoubleClick={startEdit}
-              role="button"
-              tabIndex={0}
-              aria-label="Tiêu đề công việc (double click để sửa)"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") startEdit();
-              }}
-              title="Double click để sửa"
-            >
-              {todo.title}
-            </div>
-            <div className="meta" aria-label="Thời gian tạo">
-              Tạo lúc: {createdLabel}
-            </div>
-          </>
-        ) : (
-          <div className="inline-edit" aria-label="Chỉnh sửa công việc">
-            <input
-              ref={editRef}
-              className="input"
-              value={draft}
-              aria-label="Nội dung chỉnh sửa"
-              onChange={(e) => {
-                setDraft(e.target.value);
-                if (error) setError("");
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  commitEdit();
-                } else if (e.key === "Escape") {
-                  e.preventDefault();
-                  cancelEdit();
-                }
-              }}
-              onBlur={() => {
-                // Per spec: blur -> save (not cancel)
-                commitEdit();
-              }}
-            />
-
-            {error ? (
-              <div className="error" role="alert">
-                {error}
-              </div>
-            ) : null}
-
-            <div className="inline-edit-actions">
-              <button type="button" className="btn primary" onMouseDown={(e) => e.preventDefault()} onClick={commitEdit}>
-                Lưu
-              </button>
-              <button type="button" className="btn" onMouseDown={(e) => e.preventDefault()} onClick={cancelEdit}>
-                Hủy
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="item-actions" aria-label="Hành động">
-        {!isEditing ? (
-          <>
-            <button type="button" className="btn" onClick={startEdit} aria-label="Sửa công việc">
-              Sửa
-            </button>
-            <button
-              type="button"
-              className="btn danger"
-              onClick={() => onDelete(todo)}
-              aria-label="Xóa công việc"
-            >
-              Xóa
-            </button>
-          </>
-        ) : null}
-      </div>
-    </>
-  );
-}
-
-FILE: src/components/ConfirmDialog.jsx
-import React, { useEffect, useMemo, useRef } from "react";
-import { createPortal } from "react-dom";
-import { getFocusableElements } from "../utils/dom.js";
-
-export default function ConfirmDialog({
-  open,
-  title,
-  description,
-  confirmText = "Xác nhận",
-  cancelText = "Hủy",
-  tone = "danger",
-  onConfirm,
-  onCancel,
-}) {
-  const dialogRef = useRef(null);
-  const lastActiveRef = useRef(null);
-
-  const confirmBtnClass = useMemo(() => {
-    if (tone === "danger") return "btn danger";
-    if (tone === "primary") return "btn primary";
-    return "btn";
-  }, [tone]);
-
-  useEffect(() => {
-    if (!open) return;
-
-    lastActiveRef.current = document.activeElement;
-
-    const dialogEl = dialogRef.current;
-    if (!dialogEl) return;
-
-    const focusables = getFocusableElements(dialogEl);
-    const initial = focusables[0] || dialogEl;
-    // focus soon after mount
-    const id = requestAnimationFrame(() => initial.focus());
-
-    function onKeyDown(e) {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onCancel?.();
-        return;
-      }
-      if (e.key !== "Tab") return;
-
-      const els = getFocusableElements(dialogEl);
-      if (els.length === 0) return;
-
-      const first = els[0];
-      const last = els[els.length - 1];
-
-      if (e.shiftKey) {
-        if (document.activeElement === first || document.activeElement === dialogEl) {
-          e.preventDefault();
-          last.focus();
-        }
-      } else {
-        if (document.activeElement === last) {
-          e.preventDefault();
-          first.focus();
-        }
-      }
-    }
-
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      cancelAnimationFrame(id);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open, onCancel]);
-
-  useEffect(() => {
-    if (open) return;
-    const prev = lastActiveRef.current;
-    if (prev && typeof prev.focus === "function") {
-      requestAnimationFrame(() => prev.focus());
-    }
-  }, [open]);
-
-  if (!open) return null;
-
-  return createPortal(
-    <div
-      className="backdrop"
-      role="presentation"
-      onMouseDown={(e) => {
-        // click outside dialog closes
-        if (e.target === e.currentTarget) onCancel?.();
-      }}
-    >
-      <div
-        className="dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        ref={dialogRef}
-        tabIndex={-1}
-      >
-        <div className="dialog-head">
-          <h2 className="dialog-title">{title}</h2>
-        </div>
-        <div className="dialog-body">{description}</div>
-        <div className="dialog-actions">
-          <button type="button" className="btn" onClick={onCancel} aria-label={cancelText}>
-            {cancelText}
-          </button>
-          <button type="button" className={confirmBtnClass} onClick={onConfirm} aria-label={confirmText}>
-            {confirmText}
-          </button>
-        </div>
-      </div>
-    </div>,
-    document.body
-  );
-}
-
-FILE: src/components/EmptyState.jsx
-import React from "react";
-
-export default function EmptyState({ text }) {
-  return (
-    <div className="empty" role="status" aria-live="polite">
-      {text}
-    </div>
-  );
+  return "id_" + Math.random().toString(16).slice(2) + "_" + Date.now().toString(16);
 }

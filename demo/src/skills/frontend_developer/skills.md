@@ -17,6 +17,7 @@
 - Follow the strict multi-file manifest format using `FILE: <path>`.
 - Do not include markdown fences or explanations.
 - Ensure files can be materialized directly into `outputs/app`.
+- Read existing app context first when it is provided, and preserve useful structure instead of replacing it blindly.
 
 ## Minimum App Expectations
 - Include `package.json`.

@@ -1,9 +1,9 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { TITLE_MAX_LENGTH } from "../todo/constants.js";
 
 function validateTitle(title) {
   const trimmed = title.trim();
-  if (!trimmed) return { ok: false, error: "Vui lòng nhập công việc", value: "" };
+  if (!trimmed) return { ok: false, error: "Tiêu đề không được để trống.", value: "" };
   if (trimmed.length > TITLE_MAX_LENGTH)
     return { ok: false, error: `Tiêu đề tối đa ${TITLE_MAX_LENGTH} ký tự`, value: trimmed };
   return { ok: true, error: "", value: trimmed };
@@ -16,6 +16,11 @@ export default function TodoInput({ onAdd }) {
 
   const remainingChars = useMemo(() => TITLE_MAX_LENGTH - value.trim().length, [value]);
 
+  useEffect(() => {
+    const id = requestAnimationFrame(() => inputRef.current?.focus());
+    return () => cancelAnimationFrame(id);
+  }, []);
+
   function submit() {
     const res = validateTitle(value);
     if (!res.ok) {
@@ -25,7 +30,6 @@ export default function TodoInput({ onAdd }) {
     onAdd(res.value);
     setValue("");
     setError("");
-    // keep focus for rapid entry
     inputRef.current?.focus();
   }
 

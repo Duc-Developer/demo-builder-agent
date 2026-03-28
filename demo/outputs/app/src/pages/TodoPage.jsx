@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { initialState, todoReducer } from "../todo/reducer.js";
 import { readTodos, writeTodos } from "../todo/storage.js";
 import { completedCount, remainingCount, visibleTodos } from "../todo/selectors.js";
-import { FILTERS } from "../todo/constants.js";
 import { createId } from "../utils/id.js";
 
 import TodoInput from "../components/TodoInput.jsx";
@@ -12,7 +11,6 @@ import EmptyState from "../components/EmptyState.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 
 function formatDateVi(d = new Date()) {
-  // Lightweight Vietnamese date display (no heavy i18n)
   try {
     return new Intl.DateTimeFormat("vi-VN", { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric" }).format(d);
   } catch {
@@ -28,7 +26,6 @@ export default function TodoPage() {
     /** @type {null | { kind: "deleteOne"; id: string; title: string } | { kind: "clearCompleted"; count: number }} */ (null)
   );
 
-  // Load from localStorage once
   useEffect(() => {
     if (didInitRef.current) return;
     didInitRef.current = true;
@@ -37,9 +34,7 @@ export default function TodoPage() {
     dispatch({ type: "LOAD_TODOS", todos });
   }, []);
 
-  // Persist on todos change
   useEffect(() => {
-    // Do not write before init load is complete
     if (!didInitRef.current) return;
     writeTodos(state.todos);
   }, [state.todos]);
@@ -95,13 +90,15 @@ export default function TodoPage() {
         </div>
       </div>
 
-      {state.error ? <div className="banner" role="alert">{state.error}</div> : null}
+      {state.error ? (
+        <div className="banner" role="alert">
+          {state.error}
+        </div>
+      ) : null}
 
       <div className="section">
         <TodoInput onAdd={addTodo} />
-        <div className="kbd-hint">
-          Mẹo: Enter để thêm • Double click tiêu đề để sửa • Esc để hủy khi đang sửa
-        </div>
+        <div className="kbd-hint">Mẹo: Enter để thêm • Double click tiêu đề để sửa • Esc để hủy khi đang sửa</div>
       </div>
 
       <div className="hr" />
@@ -121,9 +118,9 @@ export default function TodoPage() {
       <div className="hr" />
 
       {showEmptyNoTodos ? (
-        <EmptyState text="Chưa có công việc nào. Thêm việc mới để bắt đầu." />
+        <EmptyState text="Chưa có việc nào. Thêm việc đầu tiên!" />
       ) : showEmptyNoMatch ? (
-        <EmptyState text="Không tìm thấy công việc phù hợp." />
+        <EmptyState text="Không có việc phù hợp." />
       ) : (
         <TodoList
           todos={visible}
@@ -139,7 +136,7 @@ export default function TodoPage() {
           confirmState?.kind === "deleteOne"
             ? "Xóa công việc?"
             : confirmState?.kind === "clearCompleted"
-              ? "Xóa các việc đã xong?"
+              ? "Xóa các việc đã hoàn thành?"
               : ""
         }
         description={
@@ -149,7 +146,7 @@ export default function TodoPage() {
               ? `Bạn có chắc muốn xóa ${confirmState.count} công việc đã hoàn thành?`
               : ""
         }
-        confirmText={confirmState?.kind === "deleteOne" ? "Xóa" : "Xóa"}
+        confirmText="Xóa"
         cancelText="Hủy"
         tone="danger"
         onCancel={() => setConfirmState(null)}

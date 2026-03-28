@@ -160,22 +160,93 @@ def _extract_frontend_app() -> None:
     flush()
 
 
+def _collect_existing_app_context() -> str:
+    app_dir = _project_root() / "outputs" / "app"
+    if not app_dir.exists():
+        return ""
+
+    sections: list[str] = []
+    for path in sorted(app_dir.rglob("*")):
+        if not path.is_file() or path.name == "APP_SOURCE.txt":
+            continue
+        try:
+            content = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        sections.append(f"FILE: {path.relative_to(app_dir)}\n{content}")
+    return "\n\n".join(sections).strip()
+
+
+def _prompt_human_action(agent_name: str, result_preview: str) -> tuple[str, str]:
+    while True:
+        print(f"\n=== {agent_name} preview ===\n")
+        print(result_preview[:2000])
+        print("\nChoose action:")
+        print("1. Làm lại với feedback")
+        print("2. Tiếp tục")
+        print("3. Cancel")
+        choice = input("Your choice (1/2/3, Enter=2): ").strip()
+
+        if choice in {"", "2", "continue", "c"}:
+            return "continue", ""
+        if choice in {"3", "cancel", "x"}:
+            return "cancel", ""
+        if choice in {"1", "redo", "r"}:
+            while True:
+                feedback = input("Nhập feedback: ").strip()
+                if feedback:
+                    return "redo", feedback
+                print("Feedback không được để trống.")
+        print("Lựa chọn không hợp lệ. Vui lòng nhập 1, 2, 3 hoặc Enter.")
+
+
+def _run_with_feedback(agent_name: str, runner, base_inputs: dict[str, str]):
+    feedback_notes: list[str] = []
+
+    while True:
+        run_inputs = dict(base_inputs)
+        if feedback_notes:
+            run_inputs["human_feedback"] = "\n\n".join(feedback_notes)
+        result = runner(run_inputs)
+        raw_result = str(getattr(result, "raw", result)).strip()
+        action, feedback = _prompt_human_action(agent_name, raw_result)
+
+        if action == "continue":
+            return result
+        if action == "cancel":
+            raise RuntimeError(f"Flow cancelled before writing {agent_name} result.")
+
+        feedback_notes.append(feedback)
+
 async def _run_parallel_crews(inputs: dict[str, str], business_context: str) -> tuple[object, object]:
     demo = Demo()
     parallel_inputs = {
         **inputs,
         "business_analysis": business_context,
+        "existing_app_context": _collect_existing_app_context() or "No existing app context.",
     }
-    frontend_result, manual_result = await asyncio.gather(
-        demo.frontend_developer_crew().kickoff_async(inputs=parallel_inputs),
-        demo.manual_tester_crew().kickoff_async(inputs=parallel_inputs),
+    frontend_result = await asyncio.to_thread(
+        _run_with_feedback,
+        "Frontend Developer",
+        lambda current_inputs: demo.frontend_developer_crew().kickoff(inputs=current_inputs),
+        parallel_inputs,
+    )
+    manual_result = await asyncio.to_thread(
+        _run_with_feedback,
+        "Manual Tester",
+        lambda current_inputs: demo.manual_tester_crew().kickoff(inputs=current_inputs),
+        parallel_inputs,
     )
     return frontend_result, manual_result
 
 
 def _run_and_materialize(inputs: dict[str, str]) -> None:
     demo = Demo()
-    business_result = demo.business_analytics_crew().kickoff(inputs=inputs)
+    business_result = _run_with_feedback(
+        "Business Analytics",
+        lambda current_inputs: demo.business_analytics_crew().kickoff(inputs=current_inputs),
+        inputs,
+    )
     _update_issue_by_us_label(
         us=inputs["us"],
         role_label="business-analytics",

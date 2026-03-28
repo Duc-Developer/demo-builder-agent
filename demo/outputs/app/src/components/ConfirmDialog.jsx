@@ -31,7 +31,6 @@ export default function ConfirmDialog({
 
     const focusables = getFocusableElements(dialogEl);
     const initial = focusables[0] || dialogEl;
-    // focus soon after mount
     const id = requestAnimationFrame(() => initial.focus());
 
     function onKeyDown(e) {
@@ -83,7 +82,6 @@ export default function ConfirmDialog({
       className="backdrop"
       role="presentation"
       onMouseDown={(e) => {
-        // click outside dialog closes
         if (e.target === e.currentTarget) onCancel?.();
       }}
     >

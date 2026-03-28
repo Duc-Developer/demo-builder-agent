@@ -16,7 +16,7 @@ function formatTime(ts) {
 
 function validateTitle(title) {
   const trimmed = title.trim();
-  if (!trimmed) return { ok: false, error: "Vui lòng nhập công việc", value: "" };
+  if (!trimmed) return { ok: false, error: "Tiêu đề không được để trống.", value: "" };
   if (trimmed.length > TITLE_MAX_LENGTH)
     return { ok: false, error: `Tiêu đề tối đa ${TITLE_MAX_LENGTH} ký tự`, value: trimmed };
   return { ok: true, error: "", value: trimmed };
@@ -34,7 +34,6 @@ export default function TodoItemRow({ todo, onToggle, onEdit, onDelete }) {
     if (!isEditing) return;
     setDraft(todo.title);
     setError("");
-    // focus next tick for consistent behavior
     const id = requestAnimationFrame(() => editRef.current?.focus());
     return () => cancelAnimationFrame(id);
   }, [isEditing, todo.title]);
@@ -114,7 +113,6 @@ export default function TodoItemRow({ todo, onToggle, onEdit, onDelete }) {
                 }
               }}
               onBlur={() => {
-                // Per spec: blur -> save (not cancel)
                 commitEdit();
               }}
             />
