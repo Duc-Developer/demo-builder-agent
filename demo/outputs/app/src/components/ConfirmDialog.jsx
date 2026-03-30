@@ -1,113 +1,76 @@
-import React, { useEffect, useMemo, useRef } from "react";
-import { createPortal } from "react-dom";
-import { getFocusableElements } from "../utils/dom.js";
+import React, { useEffect, useId, useRef } from "react";
 
+/**
+ * @param {{
+ *  open: boolean,
+ *  title: string,
+ *  message: string,
+ *  confirmText?: string,
+ *  cancelText?: string,
+ *  onConfirm: () => void,
+ *  onCancel: () => void
+ * }} props
+ */
 export default function ConfirmDialog({
   open,
   title,
-  description,
-  confirmText = "Xác nhận",
+  message,
+  confirmText = "Xóa",
   cancelText = "Hủy",
-  tone = "danger",
   onConfirm,
-  onCancel,
+  onCancel
 }) {
-  const dialogRef = useRef(null);
-  const lastActiveRef = useRef(null);
-
-  const confirmBtnClass = useMemo(() => {
-    if (tone === "danger") return "btn danger";
-    if (tone === "primary") return "btn primary";
-    return "btn";
-  }, [tone]);
+  const titleId = useId();
+  const messageId = useId();
+  const cancelBtnRef = useRef(null);
 
   useEffect(() => {
     if (!open) return;
-
-    lastActiveRef.current = document.activeElement;
-
-    const dialogEl = dialogRef.current;
-    if (!dialogEl) return;
-
-    const focusables = getFocusableElements(dialogEl);
-    const initial = focusables[0] || dialogEl;
-    const id = requestAnimationFrame(() => initial.focus());
-
-    function onKeyDown(e) {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onCancel?.();
-        return;
-      }
-      if (e.key !== "Tab") return;
-
-      const els = getFocusableElements(dialogEl);
-      if (els.length === 0) return;
-
-      const first = els[0];
-      const last = els[els.length - 1];
-
-      if (e.shiftKey) {
-        if (document.activeElement === first || document.activeElement === dialogEl) {
-          e.preventDefault();
-          last.focus();
-        }
-      } else {
-        if (document.activeElement === last) {
-          e.preventDefault();
-          first.focus();
-        }
-      }
-    }
-
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      cancelAnimationFrame(id);
-      document.removeEventListener("keydown", onKeyDown);
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") onCancel();
     };
+    window.addEventListener("keydown", onKeyDown);
+    cancelBtnRef.current?.focus();
+    return () => window.removeEventListener("keydown", onKeyDown);
   }, [open, onCancel]);
-
-  useEffect(() => {
-    if (open) return;
-    const prev = lastActiveRef.current;
-    if (prev && typeof prev.focus === "function") {
-      requestAnimationFrame(() => prev.focus());
-    }
-  }, [open]);
 
   if (!open) return null;
 
-  return createPortal(
+  return (
     <div
-      className="backdrop"
+      className="modalOverlay"
       role="presentation"
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onCancel?.();
+        if (e.target === e.currentTarget) onCancel();
       }}
     >
       <div
-        className="dialog"
+        className="modal"
         role="dialog"
         aria-modal="true"
-        aria-label={title}
-        ref={dialogRef}
-        tabIndex={-1}
+        aria-labelledby={titleId}
+        aria-describedby={messageId}
       >
-        <div className="dialog-head">
-          <h2 className="dialog-title">{title}</h2>
+        <div className="modalHeader">
+          <h3 id={titleId} className="modalTitle">
+            {title || "Xác nhận"}
+          </h3>
         </div>
-        <div className="dialog-body">{description}</div>
-        <div className="dialog-actions">
-          <button type="button" className="btn" onClick={onCancel} aria-label={cancelText}>
+
+        <div id={messageId} className="modalBody">
+          {message}
+        </div>
+
+        <div className="modalFooter">
+          <button ref={cancelBtnRef} type="button" className="btn" onClick={onCancel}>
             {cancelText}
           </button>
-          <button type="button" className={confirmBtnClass} onClick={onConfirm} aria-label={confirmText}>
+          <button type="button" className="btn btnDanger" onClick={onConfirm}>
             {confirmText}
           </button>
         </div>
       </div>
-    </div>,
-    document.body
+    </div>
   );
 }
 
