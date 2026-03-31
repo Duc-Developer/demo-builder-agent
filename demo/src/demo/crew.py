@@ -44,7 +44,7 @@ class Demo():
             config=self.agents_config['business_analytics'], # type: ignore[index]
             llm=self._llm(),
             system_template=self._agent_skill_content("business_analytics"),
-            verbose=True
+            verbose=os.getenv("CREW_VERBOSE", "False").lower() == "true",
         )
 
     @agent
@@ -53,7 +53,7 @@ class Demo():
             config=self.agents_config['frontend_developer'], # type: ignore[index]
             llm=self._llm(),
             system_template=self._agent_skill_content("frontend_developer"),
-            verbose=True
+            verbose=os.getenv("CREW_VERBOSE", "False").lower() == "true",
         )
 
     @agent
@@ -62,7 +62,7 @@ class Demo():
             config=self.agents_config['manual_tester'], # type: ignore[index]
             llm=self._llm(),
             system_template=self._agent_skill_content("manual_tester"),
-            verbose=True
+            verbose=os.getenv("CREW_VERBOSE", "False").lower() == "true",
         )
 
     @task
@@ -90,7 +90,7 @@ class Demo():
             agents=self.agents,
             tasks=self.tasks,
             process=Process.sequential,
-            verbose=True,
+            verbose=os.getenv("CREW_VERBOSE", "False").lower() == "true",
         )
 
     def business_analytics_crew(self) -> Crew:
@@ -98,7 +98,7 @@ class Demo():
             agents=[self.business_analytics()],
             tasks=[self.business_analytics_task()],
             process=Process.sequential,
-            verbose=True,
+            verbose=os.getenv("CREW_VERBOSE", "False").lower() == "true",
         )
 
     def frontend_developer_crew(self) -> Crew:
@@ -106,7 +106,7 @@ class Demo():
             agents=[self.frontend_developer()],
             tasks=[self.frontend_developer_task()],
             process=Process.sequential,
-            verbose=True,
+            verbose=os.getenv("CREW_VERBOSE", "False").lower() == "true",
         )
 
     def manual_tester_crew(self) -> Crew:
@@ -114,5 +114,5 @@ class Demo():
             agents=[self.manual_tester()],
             tasks=[self.manual_tester_task()],
             process=Process.sequential,
-            verbose=True,
+            verbose=os.getenv("CREW_VERBOSE", "False").lower() == "true",
         )

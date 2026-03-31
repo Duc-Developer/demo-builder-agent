@@ -323,9 +323,18 @@ def _run_and_materialize(inputs: dict[str, str]) -> None:
             },
         )
 
+def cleanup_outputs():
+    """Clean up outputs directory."""
+    outputs_dir = _project_root() / "outputs"
+    if outputs_dir.exists():
+        shutil.rmtree(outputs_dir)
+    outputs_dir.mkdir(parents=True, exist_ok=True)
+
 def run():
     """Run the crew."""
     inputs = _build_inputs(_prompt_topic(), _prompt_us())
+    # Clean up outputs directory before running
+    cleanup_outputs()
 
     with observe(
         "run",
