@@ -4,3 +4,4 @@ __pycache__/
 
 outputs
 outputs/github-pages-deploy
+.dockerignore
