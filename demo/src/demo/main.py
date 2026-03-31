@@ -18,6 +18,10 @@ warnings.filterwarnings("ignore", category=SyntaxWarning, module="pysbd")
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[2] / ".env")
 
+MAX_CONTEXT_CHARS = 2_000_000
+MAX_CONTEXT_FILES = 20
+MAX_FILE_CHARS = 200_000
+
 
 def _prompt_topic() -> str:
     topic = input("Enter topic: ").strip()
@@ -33,11 +37,55 @@ def _prompt_us() -> str:
     return us
 
 
+def _prompt_role_toggle(label: str, default: bool = True) -> bool:
+    default_hint = "Y/n" if default else "y/N"
+    while True:
+        value = input(f"Enable {label}? ({default_hint}): ").strip().lower()
+        if not value:
+            return default
+        if value in {"y", "yes", "1"}:
+            return True
+        if value in {"n", "no", "0"}:
+            return False
+        print("Lựa chọn không hợp lệ. Vui lòng nhập y hoặc n.")
+
+
+def _prompt_flow_controls() -> dict[str, str]:
+    print("\n=== Flow control ===")
+    enable_researcher = _prompt_role_toggle("Researcher", default=True)
+    enable_designer = _prompt_role_toggle("Designer", default=True)
+    enable_developer = _prompt_role_toggle("Developer", default=True)
+    enable_manual_tester = _prompt_role_toggle("Manual Tester", default=True)
+
+    if enable_designer and not enable_developer:
+        raise ValueError("Designer chỉ có thể bật khi Developer được bật.")
+
+    if enable_designer and not enable_researcher:
+        print("Designer cần đầu vào từ Researcher, tự động bật Researcher.")
+        enable_researcher = True
+
+    return {
+        "enable_researcher": str(enable_researcher).lower(),
+        "enable_designer": str(enable_designer).lower(),
+        "enable_developer": str(enable_developer).lower(),
+        "enable_manual_tester": str(enable_manual_tester).lower(),
+    }
+
+
+def _is_enabled(inputs: dict[str, str], key: str) -> bool:
+    return inputs.get(key, "").strip().lower() == "true"
+
+
 def _build_inputs(topic: str, us: str) -> dict[str, str]:
     return {
         "topic": topic,
         "us": us,
         "current_year": str(datetime.now().year),
+        "reference_url": "",
+        "enable_researcher": "true",
+        "enable_designer": "true",
+        "enable_developer": "true",
+        "enable_manual_tester": "true",
     }
 
 
@@ -160,26 +208,56 @@ def _extract_frontend_app() -> None:
     flush()
 
 
+def _truncate_text(value: str, limit: int) -> str:
+    if len(value) <= limit:
+        return value
+    remaining = len(value) - limit
+    return f"{value[:limit]}\n\n...[truncated {remaining} characters]..."
+
+
 def _collect_existing_app_context() -> str:
     app_dir = _project_root() / "outputs" / "app"
     if not app_dir.exists():
         return ""
 
     sections: list[str] = []
+    total_chars = 0
+    file_count = 0
     for path in sorted(app_dir.rglob("*")):
         if not path.is_file() or path.name == "APP_SOURCE.txt":
             continue
+        if file_count >= MAX_CONTEXT_FILES or total_chars >= MAX_CONTEXT_CHARS:
+            sections.append("...[existing app context truncated due to size limits]...")
+            break
         try:
             content = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             continue
-        sections.append(f"FILE: {path.relative_to(app_dir)}\n{content}")
+        relative_path = path.relative_to(app_dir)
+        bounded_content = _truncate_text(content, MAX_FILE_CHARS)
+        section = f"FILE: {relative_path}\n{bounded_content}"
+        remaining_chars = MAX_CONTEXT_CHARS - total_chars
+        if remaining_chars <= 0:
+            sections.append("...[existing app context truncated due to size limits]...")
+            break
+        if len(section) > remaining_chars:
+            section = f"FILE: {relative_path}\n{_truncate_text(bounded_content, max(0, remaining_chars - len(f'FILE: {relative_path}\\n')))}"
+            sections.append(section)
+            sections.append("...[existing app context truncated due to size limits]...")
+            break
+        sections.append(section)
+        total_chars += len(section)
+        file_count += 1
     return "\n\n".join(sections).strip()
 
 
 def _prompt_human_action(agent_name: str, result_preview: str) -> tuple[str, str]:
     while True:
-        print(f"\n=== {agent_name} preview ===\n")
+        print()
+        print(f"=== {agent_name} completed ===")
+        print()
+        print("=== Preview ===")
+        print()
         print(result_preview[:2000])
         print("\nChoose action:")
         print("1. Làm lại với feedback")
@@ -209,6 +287,7 @@ def _run_with_feedback(agent_name: str, runner, base_inputs: dict[str, str]):
             run_inputs["human_feedback"] = "\n\n".join(feedback_notes)
         result = runner(run_inputs)
         raw_result = str(getattr(result, "raw", result)).strip()
+        print()
         action, feedback = _prompt_human_action(agent_name, raw_result)
 
         if action == "continue":
@@ -218,25 +297,81 @@ def _run_with_feedback(agent_name: str, runner, base_inputs: dict[str, str]):
 
         feedback_notes.append(feedback)
 
+def _run_design_chain(inputs: dict[str, str], business_context: str):
+    demo = Demo()
+    research_context = ""
+    design_context = ""
+
+    if _is_enabled(inputs, "enable_researcher"):
+        researcher_inputs = {
+            **inputs,
+            "business_analysis": business_context,
+        }
+        researcher_result = _run_with_feedback(
+            "Researcher",
+            lambda current_inputs: demo.researcher_crew().kickoff(inputs=current_inputs),
+            researcher_inputs,
+        )
+        research_context = str(getattr(researcher_result, "raw", researcher_result)).strip()
+        _update_issue_by_us_label(
+            us=inputs["us"],
+            role_label="researcher",
+            title=f"Researcher - {inputs['topic']}",
+            body=research_context,
+        )
+
+    if _is_enabled(inputs, "enable_designer"):
+        designer_inputs = {
+            **inputs,
+            "business_analysis": business_context,
+            "research_brief": research_context,
+        }
+        designer_result = _run_with_feedback(
+            "Designer",
+            lambda current_inputs: demo.designer_crew().kickoff(inputs=current_inputs),
+            designer_inputs,
+        )
+        design_context = str(getattr(designer_result, "raw", designer_result)).strip()
+        _update_issue_by_us_label(
+            us=inputs["us"],
+            role_label="designer",
+            title=f"Designer - {inputs['topic']}",
+            body=design_context,
+        )
+
+    if _is_enabled(inputs, "enable_developer"):
+        frontend_inputs = {
+            **inputs,
+            "business_analysis": business_context,
+            "research_brief": research_context,
+            "design_blueprint": design_context,
+            "existing_app_context": _collect_existing_app_context() or "No existing app context.",
+        }
+        return _run_with_feedback(
+            "Frontend Developer",
+            lambda current_inputs: demo.frontend_developer_crew().kickoff(inputs=current_inputs),
+            frontend_inputs,
+        )
+
+    return None
+
+
 async def _run_parallel_crews(inputs: dict[str, str], business_context: str) -> tuple[object, object]:
     demo = Demo()
-    parallel_inputs = {
+    manual_tester_inputs = {
         **inputs,
         "business_analysis": business_context,
-        "existing_app_context": _collect_existing_app_context() or "No existing app context.",
     }
     frontend_result = await asyncio.to_thread(
-        _run_with_feedback,
-        "Frontend Developer",
-        lambda current_inputs: demo.frontend_developer_crew().kickoff(inputs=current_inputs),
-        parallel_inputs,
+        _run_design_chain,
+        inputs,
+        business_context,
     )
-    manual_result = await asyncio.to_thread(
-        _run_with_feedback,
-        "Manual Tester",
-        lambda current_inputs: demo.manual_tester_crew().kickoff(inputs=current_inputs),
-        parallel_inputs,
-    )
+    manual_result = None
+    if _is_enabled(inputs, "enable_manual_tester"):
+        manual_result = await asyncio.to_thread(
+            lambda: demo.manual_tester_crew().kickoff(inputs=manual_tester_inputs),
+        )
     return frontend_result, manual_result
 
 
@@ -253,20 +388,23 @@ def _run_and_materialize(inputs: dict[str, str]) -> None:
         title=f"Business Analytics - {inputs['topic']}",
         body=str(getattr(business_result, "raw", business_result)).strip(),
     )
-    _, manual_result = asyncio.run(
+    frontend_result, manual_result = asyncio.run(
         _run_parallel_crews(inputs, str(getattr(business_result, "raw", business_result)).strip())
     )
-    _extract_frontend_app()
-    _update_issue_by_us_label(
-        us=inputs["us"],
-        role_label="manual-tester",
-        title=f"Manual Tester - {inputs['topic']}",
-        body=str(getattr(manual_result, "raw", manual_result)).strip(),
-    )
+    if frontend_result is not None:
+        _extract_frontend_app()
+    if manual_result is not None:
+        _update_issue_by_us_label(
+            us=inputs["us"],
+            role_label="manual-tester",
+            title=f"Manual Tester - {inputs['topic']}",
+            body=str(getattr(manual_result, "raw", manual_result)).strip(),
+        )
 
 def run():
     """Run the crew."""
     inputs = _build_inputs(_prompt_topic(), _prompt_us())
+    inputs.update(_prompt_flow_controls())
 
     try:
         _run_and_materialize(inputs)

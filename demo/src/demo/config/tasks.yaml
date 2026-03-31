@@ -15,8 +15,9 @@ business_analytics_task:
 
 frontend_developer_task:
   description: >
-    Use the business analysis context from {business_analysis} to generate a complete ReactJS
-    application for "{topic}". Review the existing application context from
+    Use the business analysis context from {business_analysis} and the design blueprint
+    from {design_blueprint} to generate a complete ReactJS application for "{topic}".
+    Review the existing application context from
     {existing_app_context} before generating new code so you can preserve or improve the current app.
     If human_feedback is provided, revise the output to address it before finalizing.
     Return the full application as plain text source files for a small React app that will be
@@ -34,6 +35,37 @@ frontend_developer_task:
     No markdown, no commentary, and no surrounding code fences.
   agent: frontend_developer
   output_file: outputs/app/APP_SOURCE.txt
+
+researcher_task:
+  description: >
+    Review the business analysis from {business_analysis} for "{topic}" and the user story
+    identifier "{us}". If a reference URL is available in {reference_url}, use it as a source
+    to extract relevant market, content, UX, or information architecture insights; otherwise,
+    analyze the topic itself to infer useful design inputs.
+    Produce a concise research brief that gives the designer concrete parameters such as target
+    expectations, suggested content groups, interaction patterns, tone, constraints, and any
+    assumptions. If human_feedback is provided, revise the output to address it before finalizing.
+    The markdown output must be written entirely in Vietnamese.
+  expected_output: >
+    A markdown research brief with sections for insight summary, reference findings,
+    recommended design parameters, content suggestions, interaction ideas, and assumptions.
+    Formatted as markdown without '```'. The entire output must be in Vietnamese.
+  agent: researcher
+
+designer_task:
+  description: >
+    Use the business analysis from {business_analysis} and the research brief from
+    {research_brief} to create a design blueprint for "{topic}".
+    The output should act like a wireframe specification for the frontend developer:
+    describe the screen structure, section order, layout blocks, components, visual hierarchy,
+    content placement, states, and key interactions. Keep the design practical and aligned
+    with the business requirements. If human_feedback is provided, revise the output to address
+    it before finalizing. The markdown output must be written entirely in Vietnamese.
+  expected_output: >
+    A markdown design blueprint with sections for design direction, layout structure,
+    screen-by-screen wireframe notes, component guidance, interaction states, and UI constraints.
+    Formatted as markdown without '```'. The entire output must be in Vietnamese.
+  agent: designer
 
 manual_tester_task:
   description: >
