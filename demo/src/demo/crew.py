@@ -57,6 +57,24 @@ class Demo():
         )
 
     @agent
+    def researcher(self) -> Agent:
+        return Agent(
+            config=self.agents_config['researcher'], # type: ignore[index]
+            llm=self._llm(),
+            system_template=self._agent_skill_content("researcher"),
+            verbose=True
+        )
+
+    @agent
+    def designer(self) -> Agent:
+        return Agent(
+            config=self.agents_config['designer'], # type: ignore[index]
+            llm=self._llm(),
+            system_template=self._agent_skill_content("designer"),
+            verbose=True
+        )
+
+    @agent
     def manual_tester(self) -> Agent:
         return Agent(
             config=self.agents_config['manual_tester'], # type: ignore[index]
@@ -75,6 +93,18 @@ class Demo():
     def frontend_developer_task(self) -> Task:
         return Task(
             config=self.tasks_config['frontend_developer_task'], # type: ignore[index]
+        )
+
+    @task
+    def researcher_task(self) -> Task:
+        return Task(
+            config=self.tasks_config['researcher_task'], # type: ignore[index]
+        )
+
+    @task
+    def designer_task(self) -> Task:
+        return Task(
+            config=self.tasks_config['designer_task'], # type: ignore[index]
         )
 
     @task
@@ -105,6 +135,22 @@ class Demo():
         return Crew(
             agents=[self.frontend_developer()],
             tasks=[self.frontend_developer_task()],
+            process=Process.sequential,
+            verbose=True,
+        )
+
+    def researcher_crew(self) -> Crew:
+        return Crew(
+            agents=[self.researcher()],
+            tasks=[self.researcher_task()],
+            process=Process.sequential,
+            verbose=True,
+        )
+
+    def designer_crew(self) -> Crew:
+        return Crew(
+            agents=[self.designer()],
+            tasks=[self.designer_task()],
             process=Process.sequential,
             verbose=True,
         )
