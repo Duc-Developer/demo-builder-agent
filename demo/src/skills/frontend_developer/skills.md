@@ -23,6 +23,7 @@
 - Include `package.json`.
 - Include `src/main.jsx`.
 - Include `src/App.jsx`.
+- Include `vite.config.js`
 - Add minimal supporting files only when necessary.
 - Keep dependencies lean unless the feature truly needs more.
 

@@ -168,6 +168,133 @@ def _extract_frontend_app() -> None:
 
     flush()
 
+def _run_command(command: list[str], cwd: Path) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        command,
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _github_pages_url() -> str:
+    repo = _require_env("GIT_HUB_REPO")
+    owner, name = repo.split("/", 1)
+    return f"https://{owner.lower()}.github.io/{name}/"
+
+
+def _detect_build_output_dir(app_dir: Path) -> Path:
+    for candidate in ("dist", "build"):
+        candidate_path = app_dir / candidate
+        if candidate_path.exists() and candidate_path.is_dir():
+            return candidate_path
+    raise ValueError("Build output directory not found. Expected dist/ or build/.")
+
+
+def _github_pages_base_path() -> str:
+    raw_base = _require_env("GIT_HUB_PAGE_URL_BASE")
+    base = raw_base.strip().strip("\"'")
+    if not base:
+        raise ValueError("GIT_HUB_PAGE_URL_BASE is empty.")
+    if not base.startswith("/"):
+        base = f"/{base}"
+    if not base.endswith("/"):
+        base = f"{base}/"
+    return base
+
+
+def _ensure_vite_base_config(app_dir: Path) -> None:
+    vite_config_path: Path | None = None
+    for candidate in ("vite.config.ts", "vite.config.js", "vite.config.mjs"):
+        candidate_path = app_dir / candidate
+        if candidate_path.exists():
+            vite_config_path = candidate_path
+            break
+
+    if vite_config_path is None:
+        return
+
+    content = vite_config_path.read_text(encoding="utf-8")
+    if "base:" in content or "base :" in content:
+        return
+
+    marker = "export default defineConfig({"
+    if marker not in content:
+        return
+
+    updated_content = content.replace(
+        marker,
+        f'{marker}\n  base: "{_github_pages_base_path()}",',
+        1,
+    )
+    vite_config_path.write_text(updated_content, encoding="utf-8")
+
+
+def build_and_deploy_github_pages(topic: str, us: str) -> str:
+    output_dir = _project_root() / "outputs"
+    app_dir = output_dir / "app"
+    if not app_dir.exists():
+        raise ValueError("No app output found to deploy.")
+
+    package_json_path = app_dir / "package.json"
+    if not package_json_path.exists():
+        raise ValueError("package.json not found in outputs/app.")
+
+    package_json = json.loads(package_json_path.read_text(encoding="utf-8"))
+    scripts = package_json.get("scripts", {})
+    if "build" not in scripts:
+        raise ValueError("Build script not found in generated app package.json.")
+
+    with observe(
+        "build_and_deploy_github_pages",
+        input={"topic": topic, "us": us, "app_dir": str(app_dir)},
+        metadata={
+            "github_pages_url": _github_pages_url(),
+            "github_pages_base": _github_pages_base_path(),
+        },
+        as_type="tool",
+    ) as observation:
+        print("Build & Deploy: Typing...")
+        _ensure_vite_base_config(app_dir)
+        if (app_dir / "package-lock.json").exists():
+            install_command = ["npm", "ci"]
+        else:
+            install_command = ["npm", "install"]
+
+        install_result = _run_command(install_command, app_dir)
+        build_result = _run_command(["npm", "run", "build"], app_dir)
+
+        build_output_dir = _detect_build_output_dir(app_dir)
+        deploy_dir = output_dir / "github-pages-deploy"
+        if deploy_dir.exists():
+            shutil.rmtree(deploy_dir)
+        shutil.copytree(build_output_dir, deploy_dir)
+
+        repo = _require_env("GIT_HUB_REPO")
+        token = _require_env("GIT_HUB_TOKEN")
+        pages_url = _github_pages_url()
+        remote_url = f"https://x-access-token:{token}@github.com/{repo}.git"
+
+        _run_command(["git", "init", "-b", "gh-pages"], deploy_dir)
+        _run_command(["git", "remote", "add", "origin", remote_url], deploy_dir)
+        _run_command(["git", "add", "."], deploy_dir)
+        _run_command(["git", "commit", "-m", f"Deploy app for {us}"], deploy_dir)
+        _run_command(["git", "push", "--force", "origin", "gh-pages"], deploy_dir)
+
+        update_observation(
+            observation,
+            output={
+                "github_pages_url": pages_url,
+                "github_pages_base": _github_pages_base_path(),
+                "install_stdout": install_result.stdout[-4000:],
+                "build_stdout": build_result.stdout[-4000:],
+                "deploy_branch": "gh-pages",
+            },
+            metadata={"topic": topic, "us": us, "deploy_status": "success"},
+        )
+        print(f"App deployed to GitHub Pages: {pages_url}")
+        return pages_url
 
 def _collect_existing_app_context() -> str:
     app_dir = _project_root() / "outputs" / "app"
@@ -222,6 +349,7 @@ def _run_with_feedback(agent_name: str, runner, base_inputs: dict[str, str]):
             run_inputs = dict(base_inputs)
             if feedback_notes:
                 run_inputs["human_feedback"] = "\n\n".join(feedback_notes)
+            print(f"{agent_name}: Typing...")
             result = runner(run_inputs)
             raw_result = str(getattr(result, "raw", result)).strip()
             update_observation(
@@ -306,6 +434,7 @@ def _run_and_materialize(inputs: dict[str, str]) -> None:
             _run_parallel_crews(inputs, business_output)
         )
         _extract_frontend_app()
+        pages_url = build_and_deploy_github_pages(inputs["topic"], inputs["us"])
         manual_output = str(getattr(manual_result, "raw", manual_result)).strip()
         _update_issue_by_us_label(
             us=inputs["us"],
@@ -319,6 +448,7 @@ def _run_and_materialize(inputs: dict[str, str]) -> None:
                 "business_analytics": business_output,
                 "frontend_developer": str(getattr(frontend_result, "raw", frontend_result)).strip(),
                 "manual_tester": manual_output,
+                "github_pages_url": pages_url,
                 "trace_url": get_current_trace_url(),
             },
         )
