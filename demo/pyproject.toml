@@ -6,6 +6,7 @@ authors = [{ name = "Your Name", email = "you@example.com" }]
 requires-python = ">=3.10,<3.14"
 dependencies = [
     "crewai[tools]==1.11.0",
+    "langfuse>=4.0.4",
     "python-dotenv>=1.0.1"
 ]
 
@@ -16,6 +17,7 @@ train = "demo.main:train"
 replay = "demo.main:replay"
 test = "demo.main:test"
 run_with_trigger = "demo.main:run_with_trigger"
+healthcheck_langfuse = "demo.main:healthcheck_langfuse_command"
 
 [build-system]
 requires = ["hatchling"]

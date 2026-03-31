@@ -1,41 +1,33 @@
 FILE: package.json
 {
-  "name": "newtodoapp",
+  "name": "new-todoapp",
   "private": true,
   "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview --host"
+    "preview": "vite preview"
   },
   "dependencies": {
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.2"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.7.0",
-    "vite": "^7.1.3"
+    "@vitejs/plugin-react": "^4.3.1",
+    "vite": "^5.4.2"
   }
 }
-
-FILE: vite.config.js
-import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
-
-export default defineConfig({
-  plugins: [react()],
-  server: {
-    port: 5173
-  }
-});
 
 FILE: index.html
 <!doctype html>
 <html lang="vi">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0b0b0c" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
     <title>Todo</title>
   </head>
   <body>
@@ -44,445 +36,486 @@ FILE: index.html
   </body>
 </html>
 
+FILE: vite.config.js
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+
+export default defineConfig({
+  plugins: [react()],
+  server: { port: 5173 }
+});
+
 FILE: src/main.jsx
 import React from "react";
-import { createRoot } from "react-dom/client";
+import ReactDOM from "react-dom/client";
+import { BrowserRouter } from "react-router-dom";
 import App from "./App.jsx";
 import "./styles.css";
 
-createRoot(document.getElementById("root")).render(
+ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <App />
+    <BrowserRouter>
+      <App />
+    </BrowserRouter>
   </React.StrictMode>
 );
 
 FILE: src/App.jsx
-import React, { useEffect, useMemo, useReducer, useRef, useState } from "react";
-import Header from "./components/Header.jsx";
-import AddTodoForm from "./components/AddTodoForm.jsx";
-import TodoControls from "./components/TodoControls.jsx";
-import TodoList from "./components/TodoList.jsx";
-import FooterStats from "./components/FooterStats.jsx";
-import ConfirmDialog from "./components/ConfirmDialog.jsx";
-import { loadTasks, saveTasks } from "./utils/storage.js";
-import { createId } from "./utils/uuid.js";
+import React, { useEffect, useMemo, useReducer, useRef } from "react";
+import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import HomePage from "./pages/HomePage.jsx";
+import SettingsPage from "./pages/SettingsPage.jsx";
+import { loadTasks, saveTasks } from "./storage/taskStorage.js";
+import { loadTheme, saveTheme, resolveTheme, THEME_KEY } from "./storage/themeStorage.js";
+import Toast from "./components/Toast.jsx";
+import { createId } from "./utils/id.js";
 
-const STORAGE_KEY = "newtodoapp.tasks";
-const TITLE_MAX_LEN = 200;
+const TASKS_KEY = "new-todoapp.tasks.v1";
 
-function tasksReducer(state, action) {
+const initialState = {
+  hydrated: false,
+  tasks: [],
+  filter: "all",
+  searchQuery: "",
+  theme: "system", // system | light | dark
+  toast: null
+};
+
+function sortTasks(tasks) {
+  const active = tasks
+    .filter((t) => t.status === "active")
+    .sort((a, b) => b.createdAt - a.createdAt);
+  const completed = tasks
+    .filter((t) => t.status === "completed")
+    .sort((a, b) => b.createdAt - a.createdAt);
+  return [...active, ...completed];
+}
+
+function reducer(state, action) {
   switch (action.type) {
-    case "init": {
-      return Array.isArray(action.payload) ? action.payload : [];
+    case "HYDRATE": {
+      const tasks = Array.isArray(action.tasks) ? sortTasks(action.tasks) : [];
+      return {
+        ...state,
+        hydrated: true,
+        tasks,
+        theme: action.theme ?? state.theme
+      };
     }
-    case "add": {
+    case "SET_FILTER":
+      return { ...state, filter: action.filter };
+    case "SET_SEARCH":
+      return { ...state, searchQuery: action.query };
+    case "ADD_TASK": {
       const now = Date.now();
       const newTask = {
         id: createId(),
-        title: action.payload.title,
-        completed: false,
-        createdAt: now
+        title: action.title,
+        note: action.note || "",
+        status: "active",
+        createdAt: now,
+        updatedAt: now
       };
-      // Newest on top
-      return [newTask, ...state];
+      return { ...state, tasks: sortTasks([newTask, ...state.tasks]) };
     }
-    case "toggle": {
-      const { id } = action.payload;
-      return state.map((t) => (t.id === id ? { ...t, completed: !t.completed } : t));
+    case "UPDATE_TASK": {
+      const now = Date.now();
+      const tasks = state.tasks.map((t) => {
+        if (t.id !== action.id) return t;
+        return {
+          ...t,
+          title: action.title,
+          note: action.note ?? "",
+          status: action.status ?? t.status,
+          updatedAt: now
+        };
+      });
+      return { ...state, tasks: sortTasks(tasks) };
     }
-    case "updateTitle": {
-      const { id, title } = action.payload;
-      return state.map((t) => (t.id === id ? { ...t, title } : t));
+    case "TOGGLE_TASK": {
+      const now = Date.now();
+      const tasks = state.tasks.map((t) => {
+        if (t.id !== action.id) return t;
+        const nextStatus = t.status === "active" ? "completed" : "active";
+        return { ...t, status: nextStatus, updatedAt: now };
+      });
+      return { ...state, tasks: sortTasks(tasks) };
     }
-    case "remove": {
-      const { id } = action.payload;
-      return state.filter((t) => t.id !== id);
+    case "DELETE_TASK": {
+      const tasks = state.tasks.filter((t) => t.id !== action.id);
+      return { ...state, tasks };
     }
-    case "clearCompleted": {
-      return state.filter((t) => !t.completed);
+    case "RESTORE_TASK": {
+      const tasks = sortTasks([action.task, ...state.tasks]);
+      return { ...state, tasks };
     }
+    case "SET_THEME":
+      return { ...state, theme: action.theme };
+    case "SHOW_TOAST":
+      return { ...state, toast: action.toast };
+    case "HIDE_TOAST":
+      if (!state.toast) return state;
+      if (action.id && state.toast.id !== action.id) return state;
+      return { ...state, toast: null };
+    case "CLEAR_ALL":
+      return { ...state, tasks: [] };
     default:
       return state;
   }
 }
 
-export default function App() {
-  const [tasks, dispatch] = useReducer(tasksReducer, []);
-  const [filter, setFilter] = useState("all"); // all | active | completed
-  const [searchQuery, setSearchQuery] = useState("");
-
-  const [editingTaskId, setEditingTaskId] = useState(null);
-  const [editingTitleDraft, setEditingTitleDraft] = useState("");
-  const [editError, setEditError] = useState("");
-
-  const [confirmState, setConfirmState] = useState({
-    open: false,
-    title: "",
-    message: "",
-    confirmText: "Xóa",
-    intent: /** @type {null | {type: "deleteOne", id: string} | {type: "clearCompleted"}} */ (null)
-  });
-
-  const addInputRef = useRef(null);
-
+function useApplyTheme(theme) {
   useEffect(() => {
-    const initial = loadTasks(STORAGE_KEY);
-    dispatch({ type: "init", payload: initial });
+    const resolved = resolveTheme(theme);
+    const root = document.documentElement;
+    root.dataset.theme = resolved;
+    root.style.colorScheme = resolved;
+
+    if (theme !== "system") return;
+
+    const mq = window.matchMedia?.("(prefers-color-scheme: dark)");
+    if (!mq) return;
+
+    const handler = () => {
+      const r = resolveTheme("system");
+      root.dataset.theme = r;
+      root.style.colorScheme = r;
+    };
+
+    mq.addEventListener?.("change", handler);
+    return () => mq.removeEventListener?.("change", handler);
+  }, [theme]);
+}
+
+export default function App() {
+  const [state, dispatch] = useReducer(reducer, initialState);
+  const toastTimerRef = useRef(null);
+
+  useApplyTheme(state.theme);
+
+  // Hydrate
+  useEffect(() => {
+    const tasks = loadTasks(TASKS_KEY);
+    const theme = loadTheme(THEME_KEY) ?? "system";
+    dispatch({ type: "HYDRATE", tasks, theme });
   }, []);
 
+  // Persist tasks
   useEffect(() => {
-    saveTasks(STORAGE_KEY, tasks);
-  }, [tasks]);
+    if (!state.hydrated) return;
+    saveTasks(TASKS_KEY, state.tasks);
+  }, [state.hydrated, state.tasks]);
 
-  const completedCount = useMemo(() => tasks.reduce((acc, t) => acc + (t.completed ? 1 : 0), 0), [tasks]);
-  const activeCount = useMemo(() => tasks.reduce((acc, t) => acc + (!t.completed ? 1 : 0), 0), [tasks]);
+  // Persist theme
+  useEffect(() => {
+    if (!state.hydrated) return;
+    saveTheme(THEME_KEY, state.theme);
+  }, [state.hydrated, state.theme]);
 
-  const normalizedQuery = searchQuery.trim().toLowerCase();
+  // Toast auto-hide
+  useEffect(() => {
+    if (!state.toast) return;
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => {
+      dispatch({ type: "HIDE_TOAST", id: state.toast?.id });
+    }, state.toast.durationMs ?? 4000);
 
-  const visibleTasks = useMemo(() => {
-    let list = tasks;
+    return () => {
+      if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    };
+  }, [state.toast]);
 
-    if (filter === "active") list = list.filter((t) => !t.completed);
-    if (filter === "completed") list = list.filter((t) => t.completed);
+  const api = useMemo(() => {
+    const showToast = (toast) => {
+      dispatch({
+        type: "SHOW_TOAST",
+        toast: {
+          id: createId(),
+          durationMs: 4200,
+          ...toast
+        }
+      });
+    };
 
-    if (normalizedQuery) {
-      list = list.filter((t) => t.title.toLowerCase().includes(normalizedQuery));
-    }
+    const completeWithUndo = (taskId) => {
+      const prev = state.tasks.find((t) => t.id === taskId);
+      if (!prev) return;
+      dispatch({ type: "TOGGLE_TASK", id: taskId });
 
-    return list;
-  }, [tasks, filter, normalizedQuery]);
+      const willBeCompleted = prev.status === "active";
+      showToast({
+        message: willBeCompleted ? "Đã hoàn thành" : "Đã hoàn tác hoàn thành",
+        actionLabel: "Hoàn tác",
+        onAction: () => dispatch({ type: "TOGGLE_TASK", id: taskId })
+      });
+    };
 
-  const showEmptyAll = tasks.length === 0;
-  const showEmptySearch = tasks.length > 0 && visibleTasks.length === 0;
+    const deleteWithUndo = (taskId) => {
+      const prev = state.tasks.find((t) => t.id === taskId);
+      if (!prev) return;
+      dispatch({ type: "DELETE_TASK", id: taskId });
+      showToast({
+        message: "Đã xoá",
+        actionLabel: "Hoàn tác",
+        onAction: () => dispatch({ type: "RESTORE_TASK", task: prev })
+      });
+    };
 
-  function focusAddInput() {
-    if (addInputRef.current) addInputRef.current.focus();
-  }
-
-  function onAddTask(rawTitle) {
-    const title = rawTitle.trim();
-    if (!title) return { ok: false, error: "Vui lòng nhập nội dung" };
-    const safe = title.slice(0, TITLE_MAX_LEN);
-    dispatch({ type: "add", payload: { title: safe } });
-    focusAddInput();
-    return { ok: true };
-  }
-
-  function startEdit(task) {
-    setEditingTaskId(task.id);
-    setEditingTitleDraft(task.title);
-    setEditError("");
-  }
-
-  function cancelEdit() {
-    setEditingTaskId(null);
-    setEditingTitleDraft("");
-    setEditError("");
-  }
-
-  function commitEdit(taskId) {
-    const title = editingTitleDraft.trim();
-    if (!title) {
-      setEditError("Vui lòng nhập nội dung");
-      return false;
-    }
-    dispatch({ type: "updateTitle", payload: { id: taskId, title: title.slice(0, TITLE_MAX_LEN) } });
-    setEditingTaskId(null);
-    setEditingTitleDraft("");
-    setEditError("");
-    return true;
-  }
-
-  function requestDeleteTask(taskId) {
-    setConfirmState({
-      open: true,
-      title: "Xác nhận",
-      message: "Bạn có chắc muốn xóa việc này?",
-      confirmText: "Xóa",
-      intent: { type: "deleteOne", id: taskId }
-    });
-  }
-
-  function requestClearCompleted() {
-    setConfirmState({
-      open: true,
-      title: "Xác nhận",
-      message: "Xóa tất cả việc đã hoàn thành?",
-      confirmText: "Xóa",
-      intent: { type: "clearCompleted" }
-    });
-  }
-
-  function closeConfirm() {
-    setConfirmState((s) => ({ ...s, open: false, intent: null }));
-  }
-
-  function confirmAction() {
-    const intent = confirmState.intent;
-    if (!intent) return;
-
-    if (intent.type === "deleteOne") {
-      // If deleting the task being edited, exit edit mode.
-      if (editingTaskId === intent.id) cancelEdit();
-      dispatch({ type: "remove", payload: { id: intent.id } });
-    } else if (intent.type === "clearCompleted") {
-      // If currently editing a completed task, exit edit mode after clearing.
-      if (editingTaskId) {
-        const editingTask = tasks.find((t) => t.id === editingTaskId);
-        if (editingTask?.completed) cancelEdit();
-      }
-      dispatch({ type: "clearCompleted" });
-    }
-    closeConfirm();
-  }
+    return {
+      dispatch,
+      showToast,
+      completeWithUndo,
+      deleteWithUndo
+    };
+  }, [state.tasks]);
 
   return (
-    <div className="appRoot">
-      <div className="container">
-        <Header />
+    <div className="app">
+      <Routes>
+        <Route
+          path="/"
+          element={
+            <HomePage
+              hydrated={state.hydrated}
+              tasks={state.tasks}
+              filter={state.filter}
+              searchQuery={state.searchQuery}
+              onChangeFilter={(filter) => dispatch({ type: "SET_FILTER", filter })}
+              onChangeSearch={(query) => dispatch({ type: "SET_SEARCH", query })}
+              onAddTask={({ title, note }) => dispatch({ type: "ADD_TASK", title, note })}
+              onUpdateTask={({ id, title, note, status }) =>
+                dispatch({ type: "UPDATE_TASK", id, title, note, status })
+              }
+              onToggleTask={(id) => api.completeWithUndo(id)}
+              onDeleteTask={(id) => api.deleteWithUndo(id)}
+              onShowToast={api.showToast}
+            />
+          }
+        />
+        <Route
+          path="/settings"
+          element={
+            <SettingsPage
+              theme={state.theme}
+              onChangeTheme={(theme) => dispatch({ type: "SET_THEME", theme })}
+              onClearAll={() => dispatch({ type: "CLEAR_ALL" })}
+              onShowToast={api.showToast}
+            />
+          }
+        />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
 
-        <main className="card" aria-label="Todo app">
-          <AddTodoForm
-            ref={addInputRef}
-            maxLen={TITLE_MAX_LEN}
-            onAdd={onAddTask}
-          />
-
-          <TodoControls
-            filter={filter}
-            onChangeFilter={(next) => setFilter(next)}
-            searchQuery={searchQuery}
-            onChangeSearch={setSearchQuery}
-            completedCount={completedCount}
-            onClearCompleted={requestClearCompleted}
-          />
-
-          <TodoList
-            tasks={visibleTasks}
-            isEmptyAll={showEmptyAll}
-            isEmptySearch={showEmptySearch}
-            onToggle={(id) => dispatch({ type: "toggle", payload: { id } })}
-            onRequestDelete={requestDeleteTask}
-            onStartEdit={startEdit}
-            editingTaskId={editingTaskId}
-            editingTitleDraft={editingTitleDraft}
-            onChangeEditingTitle={(v) => {
-              setEditingTitleDraft(v.slice(0, TITLE_MAX_LEN));
-              if (editError) setEditError("");
-            }}
-            editError={editError}
-            onCommitEdit={commitEdit}
-            onCancelEdit={cancelEdit}
-            maxLen={TITLE_MAX_LEN}
-          />
-
-          <FooterStats activeCount={activeCount} totalCount={tasks.length} />
-        </main>
-      </div>
-
-      <ConfirmDialog
-        open={confirmState.open}
-        title={confirmState.title}
-        message={confirmState.message}
-        confirmText={confirmState.confirmText}
-        cancelText="Hủy"
-        onCancel={closeConfirm}
-        onConfirm={confirmAction}
+      <Toast
+        toast={state.toast}
+        onClose={() => dispatch({ type: "HIDE_TOAST", id: state.toast?.id })}
       />
     </div>
   );
 }
 
-FILE: src/components/Header.jsx
-import React from "react";
+FILE: src/storage/taskStorage.js
+export function loadTasks(storageKey) {
+  try {
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    // basic shape cleanup
+    return parsed
+      .filter((t) => t && typeof t.id === "string" && typeof t.title === "string")
+      .map((t) => ({
+        id: String(t.id),
+        title: String(t.title),
+        note: typeof t.note === "string" ? t.note : "",
+        status: t.status === "completed" ? "completed" : "active",
+        createdAt: typeof t.createdAt === "number" ? t.createdAt : Date.now(),
+        updatedAt: typeof t.updatedAt === "number" ? t.updatedAt : Date.now()
+      }));
+  } catch {
+    return [];
+  }
+}
 
-export default function Header() {
+export function saveTasks(storageKey, tasks) {
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(tasks ?? []));
+  } catch {
+    // ignore quota / private mode errors
+  }
+}
+
+FILE: src/storage/themeStorage.js
+export const THEME_KEY = "new-todoapp.theme.v1";
+
+export function loadTheme(key) {
+  try {
+    const v = localStorage.getItem(key);
+    if (v === "light" || v === "dark" || v === "system") return v;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveTheme(key, theme) {
+  try {
+    localStorage.setItem(key, theme);
+  } catch {
+    // ignore
+  }
+}
+
+export function resolveTheme(theme) {
+  if (theme === "light" || theme === "dark") return theme;
+  const mq = window.matchMedia?.("(prefers-color-scheme: dark)");
+  const isDark = mq ? mq.matches : false;
+  return isDark ? "dark" : "light";
+}
+
+FILE: src/utils/id.js
+export function createId() {
+  // Prefer crypto.randomUUID when available
+  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+  return `id_${Math.random().toString(16).slice(2)}_${Date.now().toString(16)}`;
+}
+
+FILE: src/utils/debounce.js
+import { useEffect, useState } from "react";
+
+export function useDebouncedValue(value, delayMs = 200) {
+  const [debounced, setDebounced] = useState(value);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebounced(value), delayMs);
+    return () => window.clearTimeout(t);
+  }, [value, delayMs]);
+
+  return debounced;
+}
+
+FILE: src/components/AppHeader.jsx
+import React from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+
+function IconGear(props) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false" {...props}>
+      <path
+        fill="currentColor"
+        d="M19.14 12.94a7.49 7.49 0 0 0 .05-.94a7.49 7.49 0 0 0-.05-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.28 7.28 0 0 0-1.63-.94l-.36-2.54A.5.5 0 0 0 13.9 1h-3.8a.5.5 0 0 0-.49.42L9.25 3.96c-.58.23-1.12.54-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 7.48a.5.5 0 0 0 .12.64l2.03 1.58c-.03.31-.05.63-.05.94s.02.63.05.94L2.83 14.52a.5.5 0 0 0-.12.64l1.92 3.32c.13.22.39.3.6.22l2.39-.96c.5.4 1.05.71 1.63.94l.36 2.54c.04.24.25.42.49.42h3.8c.24 0 .45-.18.49-.42l.36-2.54c.58-.23 1.12-.54 1.63-.94l2.39.96c.22.09.47 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64zM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5"
+      />
+    </svg>
+  );
+}
+
+function IconBack(props) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false" {...props}>
+      <path
+        fill="currentColor"
+        d="M19 11H7.83l5.59-5.59L12 4l-8 8l8 8l1.41-1.41L7.83 13H19z"
+      />
+    </svg>
+  );
+}
+
+export default function AppHeader({ title, rightSlot }) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const isSettings = location.pathname.startsWith("/settings");
+
   return (
     <header className="header">
-      <div className="brand">
-        <div className="brandMark" aria-hidden="true">✓</div>
-        <div className="brandText">
-          <h1 className="title">Todo</h1>
-          <p className="subtitle">Danh sách việc cần làm đơn giản</p>
-        </div>
+      <div className="header__left">
+        {isSettings ? (
+          <button
+            className="iconButton"
+            onClick={() => navigate(-1)}
+            aria-label="Quay lại"
+            type="button"
+          >
+            <IconBack />
+          </button>
+        ) : (
+          <div className="header__title" aria-label="Tiêu đề">
+            {title}
+          </div>
+        )}
+        {isSettings && <div className="header__title">Cài đặt</div>}
+      </div>
+
+      <div className="header__right">
+        {rightSlot}
+        {!isSettings && (
+          <Link to="/settings" className="iconButton" aria-label="Cài đặt">
+            <IconGear />
+          </Link>
+        )}
       </div>
     </header>
   );
 }
 
-FILE: src/components/AddTodoForm.jsx
-import React, { forwardRef, useEffect, useId, useRef, useState } from "react";
+FILE: src/components/SearchBar.jsx
+import React, { useEffect, useRef } from "react";
 
-/**
- * @param {{
- *  onAdd: (title: string) => {ok: true} | {ok: false, error: string},
- *  maxLen: number
- * }} props
- */
-const AddTodoForm = forwardRef(function AddTodoForm({ onAdd, maxLen }, forwardedRef) {
-  const inputId = useId();
-  const errorId = useId();
-  const counterId = useId();
-
-  const localRef = useRef(null);
-  const inputRef = /** @type {React.MutableRefObject<HTMLInputElement | null>} */ (forwardedRef ?? localRef);
-
-  const [title, setTitle] = useState("");
-  const [error, setError] = useState("");
+export default function SearchBar({ value, onChange }) {
+  const inputRef = useRef(null);
 
   useEffect(() => {
-    if (inputRef.current) inputRef.current.focus();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Keep mobile keyboard behavior predictable: do not auto-focus.
   }, []);
 
-  function submit() {
-    const res = onAdd(title);
-    if (!res.ok) {
-      setError(res.error);
-      return;
-    }
-    setTitle("");
-    setError("");
-  }
-
   return (
-    <section className="section" aria-label="Thêm công việc">
-      <div className="row">
-        <label className="srOnly" htmlFor={inputId}>
-          Thêm việc cần làm
-        </label>
-        <div className="inputGroup">
-          <input
-            id={inputId}
-            ref={inputRef}
-            className={`textInput ${error ? "isInvalid" : ""}`}
-            type="text"
-            value={title}
-            placeholder="Thêm việc cần làm…"
-            maxLength={maxLen}
-            onChange={(e) => {
-              setTitle(e.target.value);
-              if (error) setError("");
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                submit();
-              }
-            }}
-            aria-invalid={error ? "true" : "false"}
-            aria-describedby={`${error ? errorId : ""} ${counterId}`.trim()}
-          />
-          <button className="btn btnPrimary" type="button" onClick={submit}>
-            Thêm
-          </button>
-        </div>
-      </div>
-
-      <div className="row rowMeta">
-        <div className="metaLeft">
-          {error ? (
-            <div id={errorId} className="errorText" role="alert">
-              {error}
-            </div>
-          ) : (
-            <div className="hintText">Nhấn Enter để thêm nhanh</div>
-          )}
-        </div>
-        <div id={counterId} className="counterText" aria-live="polite">
-          {title.length}/{maxLen}
-        </div>
-      </div>
-    </section>
-  );
-});
-
-export default AddTodoForm;
-
-FILE: src/components/TodoControls.jsx
-import React, { useId } from "react";
-import FilterTabs from "./controls/FilterTabs.jsx";
-import SearchInput from "./controls/SearchInput.jsx";
-
-/**
- * @param {{
- *  filter: "all" | "active" | "completed",
- *  onChangeFilter: (f: "all" | "active" | "completed") => void,
- *  searchQuery: string,
- *  onChangeSearch: (q: string) => void,
- *  completedCount: number,
- *  onClearCompleted: () => void
- * }} props
- */
-export default function TodoControls({
-  filter,
-  onChangeFilter,
-  searchQuery,
-  onChangeSearch,
-  completedCount,
-  onClearCompleted
-}) {
-  const controlsLabelId = useId();
-
-  return (
-    <section className="section" aria-labelledby={controlsLabelId}>
-      <div className="sectionHeader">
-        <h2 id={controlsLabelId} className="sectionTitle">Bộ lọc & tìm kiếm</h2>
-      </div>
-
-      <div className="controlsGrid">
-        <div className="controlsLeft">
-          <FilterTabs value={filter} onChange={onChangeFilter} />
-        </div>
-
-        <div className="controlsRight">
-          <SearchInput value={searchQuery} onChange={onChangeSearch} />
-          <button
-            type="button"
-            className="btn btnGhost"
-            onClick={onClearCompleted}
-            disabled={completedCount === 0}
-            aria-disabled={completedCount === 0 ? "true" : "false"}
-            title={completedCount === 0 ? "Không có việc đã hoàn thành" : "Xóa tất cả việc đã hoàn thành"}
-          >
-            Xóa đã hoàn thành
-          </button>
-        </div>
-      </div>
-    </section>
+    <div className="search">
+      <label className="srOnly" htmlFor="searchInput">
+        Tìm kiếm
+      </label>
+      <input
+        id="searchInput"
+        ref={inputRef}
+        className="search__input"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="Tìm theo tiêu đề..."
+        inputMode="search"
+        autoComplete="off"
+        spellCheck={false}
+      />
+      {value?.length > 0 && (
+        <button className="search__clear" type="button" onClick={() => onChange("")} aria-label="Xoá tìm kiếm">
+          Xoá
+        </button>
+      )}
+    </div>
   );
 }
 
-FILE: src/components/controls/FilterTabs.jsx
+FILE: src/components/FilterChips.jsx
 import React from "react";
 
-/**
- * @param {{
- *  value: "all" | "active" | "completed",
- *  onChange: (v: "all" | "active" | "completed") => void
- * }} props
- */
-export default function FilterTabs({ value, onChange }) {
-  const items = [
-    { key: "all", label: "Tất cả" },
-    { key: "active", label: "Đang làm" },
-    { key: "completed", label: "Đã hoàn thành" }
-  ];
+const options = [
+  { key: "all", label: "Tất cả" },
+  { key: "active", label: "Đang làm" },
+  { key: "completed", label: "Hoàn thành" }
+];
 
+export default function FilterChips({ value, onChange }) {
   return (
-    <div className="tabs" role="tablist" aria-label="Lọc trạng thái">
-      {items.map((it) => {
-        const selected = value === it.key;
+    <div className="chips" role="tablist" aria-label="Bộ lọc">
+      {options.map((opt) => {
+        const active = opt.key === value;
         return (
           <button
-            key={it.key}
+            key={opt.key}
             type="button"
-            className={`tab ${selected ? "isActive" : ""}`}
             role="tab"
-            aria-selected={selected ? "true" : "false"}
-            onClick={() => onChange(/** @type any */ (it.key))}
+            aria-selected={active}
+            className={`chip ${active ? "chip--active" : ""}`}
+            onClick={() => onChange(opt.key)}
           >
-            {it.label}
+            {opt.label}
           </button>
         );
       })}
@@ -490,436 +523,437 @@ export default function FilterTabs({ value, onChange }) {
   );
 }
 
-FILE: src/components/controls/SearchInput.jsx
-import React, { useId } from "react";
+FILE: src/components/FabAddButton.jsx
+import React from "react";
 
-/**
- * @param {{
- *  value: string,
- *  onChange: (v: string) => void
- * }} props
- */
-export default function SearchInput({ value, onChange }) {
-  const id = useId();
-
+export default function FabAddButton({ onClick }) {
   return (
-    <div className="searchWrap">
-      <label className="srOnly" htmlFor={id}>
-        Tìm kiếm
-      </label>
-      <input
-        id={id}
-        className="textInput"
-        type="search"
-        placeholder="Tìm kiếm…"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        aria-label="Tìm kiếm theo tiêu đề"
-      />
-    </div>
+    <button className="fab" type="button" onClick={onClick} aria-label="Thêm việc">
+      <span className="fab__plus" aria-hidden="true">
+        +
+      </span>
+    </button>
   );
 }
 
-FILE: src/components/TodoList.jsx
-import React, { useId } from "react";
-import TodoItem from "./TodoItem.jsx";
+FILE: src/components/TaskList.jsx
+import React from "react";
+import TaskItem from "./TaskItem.jsx";
 
-/**
- * @typedef {{id: string, title: string, completed: boolean, createdAt?: number}} Task
- */
+export default function TaskList({ tasks, onToggle, onOpenActions, onOpenEdit }) {
+  return (
+    <ul className="taskList" aria-label="Danh sách việc">
+      {tasks.map((t) => (
+        <TaskItem
+          key={t.id}
+          task={t}
+          onToggle={() => onToggle(t.id)}
+          onOpenActions={() => onOpenActions(t.id)}
+          onOpenEdit={() => onOpenEdit(t.id)}
+        />
+      ))}
+    </ul>
+  );
+}
 
-/**
- * @param {{
- *  tasks: Task[],
- *  isEmptyAll: boolean,
- *  isEmptySearch: boolean,
- *  onToggle: (id: string) => void,
- *  onRequestDelete: (id: string) => void,
- *  onStartEdit: (task: Task) => void,
- *  editingTaskId: string | null,
- *  editingTitleDraft: string,
- *  onChangeEditingTitle: (v: string) => void,
- *  editError: string,
- *  onCommitEdit: (taskId: string) => boolean,
- *  onCancelEdit: () => void,
- *  maxLen: number
- * }} props
- */
-export default function TodoList({
-  tasks,
-  isEmptyAll,
-  isEmptySearch,
-  onToggle,
-  onRequestDelete,
-  onStartEdit,
-  editingTaskId,
-  editingTitleDraft,
-  onChangeEditingTitle,
-  editError,
-  onCommitEdit,
-  onCancelEdit,
-  maxLen
-}) {
-  const labelId = useId();
+FILE: src/components/TaskItem.jsx
+import React from "react";
+
+function IconMore(props) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false" {...props}>
+      <path
+        fill="currentColor"
+        d="M12 8a2 2 0 1 0 0-4a2 2 0 0 0 0 4m0 2a2 2 0 1 0 0 4a2 2 0 0 0 0-4m0 6a2 2 0 1 0 0 4a2 2 0 0 0 0-4"
+      />
+    </svg>
+  );
+}
+
+export default function TaskItem({ task, onToggle, onOpenActions, onOpenEdit }) {
+  const completed = task.status === "completed";
+  const titleId = `task_title_${task.id}`;
+  const notePreview = (task.note || "").trim();
 
   return (
-    <section className="section" aria-labelledby={labelId}>
-      <div className="sectionHeader">
-        <h2 id={labelId} className="sectionTitle">Danh sách</h2>
+    <li className={`taskItem ${completed ? "taskItem--completed" : ""}`}>
+      <div className="taskItem__checkbox">
+        <input
+          className="checkbox"
+          type="checkbox"
+          checked={completed}
+          onChange={onToggle}
+          aria-label={`Đánh dấu hoàn thành: ${task.title}`}
+        />
       </div>
 
-      {isEmptyAll ? (
-        <div className="emptyState" role="status">
-          Chưa có việc nào. Hãy thêm việc mới!
+      <button type="button" className="taskItem__content" onClick={onOpenEdit} aria-labelledby={titleId}>
+        <div className="taskItem__title" id={titleId}>
+          {task.title}
         </div>
-      ) : isEmptySearch ? (
-        <div className="emptyState" role="status">
-          Không tìm thấy việc phù hợp.
-        </div>
-      ) : (
-        <ul className="todoList" aria-label="Danh sách việc cần làm">
-          {tasks.map((task) => (
-            <TodoItem
-              key={task.id}
-              task={task}
-              onToggle={() => onToggle(task.id)}
-              onRequestDelete={() => onRequestDelete(task.id)}
-              onStartEdit={() => onStartEdit(task)}
-              isEditing={editingTaskId === task.id}
-              editingTitleDraft={editingTitleDraft}
-              onChangeEditingTitle={onChangeEditingTitle}
-              editError={editingTaskId === task.id ? editError : ""}
-              onCommitEdit={() => onCommitEdit(task.id)}
-              onCancelEdit={onCancelEdit}
-              maxLen={maxLen}
-            />
-          ))}
-        </ul>
-      )}
-    </section>
-  );
-}
+        {notePreview.length > 0 && <div className="taskItem__note">{notePreview}</div>}
+      </button>
 
-FILE: src/components/TodoItem.jsx
-import React, { useEffect, useId, useMemo, useRef } from "react";
-
-/**
- * @param {{
- *  task: {id: string, title: string, completed: boolean, createdAt?: number},
- *  onToggle: () => void,
- *  onRequestDelete: () => void,
- *  onStartEdit: () => void,
- *  isEditing: boolean,
- *  editingTitleDraft: string,
- *  onChangeEditingTitle: (v: string) => void,
- *  editError: string,
- *  onCommitEdit: () => boolean,
- *  onCancelEdit: () => void,
- *  maxLen: number
- * }} props
- */
-export default function TodoItem({
-  task,
-  onToggle,
-  onRequestDelete,
-  onStartEdit,
-  isEditing,
-  editingTitleDraft,
-  onChangeEditingTitle,
-  editError,
-  onCommitEdit,
-  onCancelEdit,
-  maxLen
-}) {
-  const checkboxId = useId();
-  const errorId = useId();
-  const counterId = useId();
-  const editInputRef = useRef(null);
-
-  const createdText = useMemo(() => {
-    if (!task.createdAt) return "";
-    try {
-      const fmt = new Intl.DateTimeFormat("vi-VN", {
-        hour: "2-digit",
-        minute: "2-digit",
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric"
-      });
-      return fmt.format(new Date(task.createdAt));
-    } catch {
-      return "";
-    }
-  }, [task.createdAt]);
-
-  useEffect(() => {
-    if (!isEditing) return;
-    if (!editInputRef.current) return;
-    const el = editInputRef.current;
-    el.focus();
-    el.setSelectionRange(0, el.value.length);
-  }, [isEditing]);
-
-  function tryCommit() {
-    const ok = onCommitEdit();
-    if (!ok) {
-      // keep editing and refocus
-      requestAnimationFrame(() => {
-        editInputRef.current?.focus();
-      });
-    }
-  }
-
-  return (
-    <li className={`todoItem ${task.completed ? "isCompleted" : ""}`}>
-      <div className="todoMain">
-        <div className="todoCheck">
-          <input
-            id={checkboxId}
-            type="checkbox"
-            checked={task.completed}
-            onChange={onToggle}
-            aria-label={task.completed ? "Hoàn tác" : "Đánh dấu hoàn thành"}
-          />
-        </div>
-
-        <div className="todoContent">
-          {!isEditing ? (
-            <>
-              <label
-                className="todoTitle"
-                htmlFor={checkboxId}
-                onDoubleClick={onStartEdit}
-                title="Double click để sửa"
-              >
-                {task.title}
-              </label>
-              {createdText ? <div className="todoMeta">Tạo lúc: {createdText}</div> : null}
-            </>
-          ) : (
-            <>
-              <div className="editWrap">
-                <input
-                  ref={editInputRef}
-                  className={`textInput ${editError ? "isInvalid" : ""}`}
-                  type="text"
-                  value={editingTitleDraft}
-                  maxLength={maxLen}
-                  onChange={(e) => onChangeEditingTitle(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      tryCommit();
-                    }
-                    if (e.key === "Escape") {
-                      e.preventDefault();
-                      onCancelEdit();
-                    }
-                  }}
-                  onBlur={() => {
-                    // blur = save if valid, otherwise keep edit with error
-                    tryCommit();
-                  }}
-                  aria-label="Sửa tiêu đề"
-                  aria-invalid={editError ? "true" : "false"}
-                  aria-describedby={`${editError ? errorId : ""} ${counterId}`.trim()}
-                />
-              </div>
-
-              <div className="editMetaRow">
-                <div className="metaLeft">
-                  {editError ? (
-                    <div id={errorId} className="errorText" role="alert">
-                      {editError}
-                    </div>
-                  ) : (
-                    <div className="hintText">Enter để lưu, Esc để hủy</div>
-                  )}
-                </div>
-                <div id={counterId} className="counterText" aria-live="polite">
-                  {editingTitleDraft.length}/{maxLen}
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-
-        <div className="todoActions">
-          {!isEditing ? (
-            <>
-              <button
-                type="button"
-                className="iconBtn"
-                onClick={onStartEdit}
-                aria-label="Sửa"
-                title="Sửa"
-              >
-                <PencilIcon />
-              </button>
-              <button
-                type="button"
-                className="iconBtn danger"
-                onClick={onRequestDelete}
-                aria-label="Xóa"
-                title="Xóa"
-              >
-                <TrashIcon />
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                type="button"
-                className="iconBtn"
-                onClick={tryCommit}
-                aria-label="Lưu"
-                title="Lưu"
-              >
-                <CheckIcon />
-              </button>
-              <button
-                type="button"
-                className="iconBtn"
-                onClick={onCancelEdit}
-                aria-label="Hủy"
-                title="Hủy"
-              >
-                <XIcon />
-              </button>
-            </>
-          )}
-        </div>
+      <div className="taskItem__actions">
+        <button type="button" className="iconButton" onClick={onOpenActions} aria-label="Tùy chọn">
+          <IconMore />
+        </button>
       </div>
     </li>
   );
 }
 
-function PencilIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path
-        fill="currentColor"
-        d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25Zm2.92 2.83H5v-.92l9.06-9.06.92.92L5.92 20.08ZM20.71 7.04a1.003 1.003 0 0 0 0-1.42l-2.34-2.34a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 1.84-1.82Z"
-      />
-    </svg>
-  );
-}
+FILE: src/components/TaskModal.jsx
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import ModalSheet from "./ModalSheet.jsx";
 
-function TrashIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path
-        fill="currentColor"
-        d="M6 7h12l-1 14H7L6 7Zm3-3h6l1 2H8l1-2Zm-5 2h16v2H4V6Z"
-      />
-    </svg>
-  );
-}
+const MAX_TITLE = 120;
+const MAX_NOTE = 500;
 
-function CheckIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path fill="currentColor" d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z" />
-    </svg>
-  );
-}
-
-function XIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path
-        fill="currentColor"
-        d="M18.3 5.71 12 12l6.3 6.29-1.41 1.42L12 13.41l-6.89 6.3-1.42-1.41L10.59 12 3.7 5.71 5.11 4.29 12 10.59l6.89-6.3z"
-      />
-    </svg>
-  );
-}
-
-FILE: src/components/FooterStats.jsx
-import React from "react";
-
-/**
- * @param {{activeCount: number, totalCount: number}} props
- */
-export default function FooterStats({ activeCount, totalCount }) {
-  return (
-    <footer className="footerStats" aria-label="Thống kê">
-      <div className="statsLeft">{activeCount} việc đang làm</div>
-      <div className="statsRight">Tổng: {totalCount}</div>
-    </footer>
-  );
-}
-
-FILE: src/components/ConfirmDialog.jsx
-import React, { useEffect, useId, useRef } from "react";
-
-/**
- * @param {{
- *  open: boolean,
- *  title: string,
- *  message: string,
- *  confirmText?: string,
- *  cancelText?: string,
- *  onConfirm: () => void,
- *  onCancel: () => void
- * }} props
- */
-export default function ConfirmDialog({
+export default function TaskModal({
   open,
-  title,
-  message,
-  confirmText = "Xóa",
-  cancelText = "Hủy",
-  onConfirm,
-  onCancel
+  mode, // add | edit
+  task,
+  onClose,
+  onSubmit,
+  onRequestDelete
 }) {
-  const titleId = useId();
-  const messageId = useId();
-  const cancelBtnRef = useRef(null);
+  const titleText = mode === "add" ? "Thêm việc" : "Sửa việc";
+
+  const [title, setTitle] = useState("");
+  const [note, setNote] = useState("");
+  const [completed, setCompleted] = useState(false);
+  const [error, setError] = useState("");
+
+  const titleInputRef = useRef(null);
 
   useEffect(() => {
     if (!open) return;
+    if (mode === "edit" && task) {
+      setTitle(task.title ?? "");
+      setNote(task.note ?? "");
+      setCompleted(task.status === "completed");
+    } else {
+      setTitle("");
+      setNote("");
+      setCompleted(false);
+    }
+    setError("");
+  }, [open, mode, task]);
+
+  const canDelete = mode === "edit" && task;
+
+  const handleSubmit = () => {
+    const trimmed = (title || "").trim();
+    if (!trimmed) {
+      setError("Vui lòng nhập tiêu đề");
+      titleInputRef.current?.focus?.();
+      return;
+    }
+    if (trimmed.length > MAX_TITLE) {
+      setError(`Tiêu đề tối đa ${MAX_TITLE} ký tự`);
+      titleInputRef.current?.focus?.();
+      return;
+    }
+    const safeNote = (note || "").slice(0, MAX_NOTE);
+
+    onSubmit({
+      title: trimmed,
+      note: safeNote,
+      status: mode === "edit" ? (completed ? "completed" : "active") : "active"
+    });
+  };
+
+  const footer = useMemo(() => {
+    return (
+      <div className="modalFooter">
+        {canDelete ? (
+          <button type="button" className="button button--danger button--ghost" onClick={onRequestDelete}>
+            Xoá
+          </button>
+        ) : (
+          <span />
+        )}
+        <div className="modalFooter__right">
+          <button type="button" className="button button--ghost" onClick={onClose}>
+            Huỷ
+          </button>
+          <button type="button" className="button button--primary" onClick={handleSubmit}>
+            Lưu
+          </button>
+        </div>
+      </div>
+    );
+  }, [canDelete, onClose, onRequestDelete, handleSubmit]);
+
+  return (
+    <ModalSheet
+      open={open}
+      title={titleText}
+      onClose={onClose}
+      initialFocusRef={titleInputRef}
+      footer={footer}
+    >
+      <div className="form">
+        <label className="label" htmlFor="taskTitle">
+          Tiêu đề <span className="required">*</span>
+        </label>
+        <input
+          id="taskTitle"
+          ref={titleInputRef}
+          className={`input ${error ? "input--error" : ""}`}
+          value={title}
+          onChange={(e) => {
+            setTitle(e.target.value);
+            if (error) setError("");
+          }}
+          placeholder="Ví dụ: Gọi điện cho khách hàng"
+          maxLength={MAX_TITLE + 20}
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
+        />
+        {error ? <div className="errorText" role="alert">{error}</div> : null}
+
+        <label className="label" htmlFor="taskNote">
+          Ghi chú
+        </label>
+        <textarea
+          id="taskNote"
+          className="textarea"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="(Tuỳ chọn)"
+          maxLength={MAX_NOTE + 50}
+          rows={4}
+        />
+
+        {mode === "edit" ? (
+          <div className="row">
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={completed}
+                onChange={(e) => setCompleted(e.target.checked)}
+                aria-label="Hoàn thành"
+              />
+              <span>Hoàn thành</span>
+            </label>
+          </div>
+        ) : null}
+
+        <div className="hint">
+          Tiêu đề tối đa {MAX_TITLE} ký tự. Ghi chú tối đa {MAX_NOTE} ký tự.
+        </div>
+      </div>
+    </ModalSheet>
+  );
+}
+
+FILE: src/components/ModalSheet.jsx
+import React, { useEffect, useMemo, useRef } from "react";
+
+function useIsDesktop() {
+  const mq = typeof window !== "undefined" ? window.matchMedia?.("(min-width: 640px)") : null;
+  const [isDesktop, setIsDesktop] = React.useState(() => (mq ? mq.matches : false));
+
+  useEffect(() => {
+    if (!mq) return;
+    const handler = () => setIsDesktop(mq.matches);
+    mq.addEventListener?.("change", handler);
+    return () => mq.removeEventListener?.("change", handler);
+  }, [mq]);
+
+  return isDesktop;
+}
+
+export default function ModalSheet({ open, title, children, onClose, footer, initialFocusRef }) {
+  const isDesktop = useIsDesktop();
+  const dialogRef = useRef(null);
+  const contentRef = useRef(null);
+  const lastActiveElRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+
+    lastActiveElRef.current = document.activeElement;
+
     const onKeyDown = (e) => {
-      if (e.key === "Escape") onCancel();
+      if (e.key === "Escape") onClose?.();
+      if (e.key !== "Tab") return;
+
+      const root = contentRef.current;
+      if (!root) return;
+
+      const focusables = root.querySelectorAll(
+        'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
+      if (!focusables.length) return;
+
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     };
-    window.addEventListener("keydown", onKeyDown);
-    cancelBtnRef.current?.focus();
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [open, onCancel]);
+
+    document.addEventListener("keydown", onKeyDown);
+
+    // prevent background scroll
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const focusTarget = initialFocusRef?.current;
+    window.setTimeout(() => focusTarget?.focus?.(), 0);
+
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = prevOverflow;
+      const last = lastActiveElRef.current;
+      if (last && typeof last.focus === "function") last.focus();
+    };
+  }, [open, onClose, initialFocusRef]);
+
+  const containerClass = useMemo(() => {
+    if (!open) return "modal modal--closed";
+    return `modal ${isDesktop ? "modal--dialog" : "modal--sheet"}`;
+  }, [open, isDesktop]);
 
   if (!open) return null;
 
   return (
-    <div
-      className="modalOverlay"
-      role="presentation"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onCancel();
-      }}
-    >
-      <div
-        className="modal"
+    <div className={containerClass} role="presentation">
+      <div className="modal__backdrop" onClick={onClose} aria-hidden="true" />
+      <section
+        className="modal__panel"
         role="dialog"
         aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={messageId}
+        aria-label={title}
+        ref={dialogRef}
       >
-        <div className="modalHeader">
-          <h3 id={titleId} className="modalTitle">
-            {title || "Xác nhận"}
-          </h3>
-        </div>
-
-        <div id={messageId} className="modalBody">
-          {message}
-        </div>
-
-        <div className="modalFooter">
-          <button ref={cancelBtnRef} type="button" className="btn" onClick={onCancel}>
-            {cancelText}
+        <div className="modal__handle" aria-hidden="true" />
+        <div className="modal__header">
+          <div className="modal__title">{title}</div>
+          <button className="iconButton" type="button" onClick={onClose} aria-label="Đóng">
+            ✕
           </button>
-          <button type="button" className="btn btnDanger" onClick={onConfirm}>
-            {confirmText}
+        </div>
+
+        <div className="modal__content" ref={contentRef}>
+          {children}
+        </div>
+
+        {footer ? <div className="modal__footer">{footer}</div> : null}
+      </section>
+    </div>
+  );
+}
+
+FILE: src/components/ConfirmDialog.jsx
+import React, { useEffect, useRef } from "react";
+import ModalSheet from "./ModalSheet.jsx";
+
+export default function ConfirmDialog({ open, title, description, confirmLabel, danger, onConfirm, onClose }) {
+  const confirmRef = useRef(null);
+
+  useEffect(() => {
+    // handled by ModalSheet focus trap
+  }, []);
+
+  const footer = (
+    <div className="modalFooter">
+      <button type="button" className="button button--ghost" onClick={onClose}>
+        Huỷ
+      </button>
+      <button
+        ref={confirmRef}
+        type="button"
+        className={`button ${danger ? "button--danger" : "button--primary"}`}
+        onClick={onConfirm}
+      >
+        {confirmLabel}
+      </button>
+    </div>
+  );
+
+  return (
+    <ModalSheet open={open} title={title} onClose={onClose} initialFocusRef={confirmRef} footer={footer}>
+      <div className="confirm">
+        <p className="confirm__desc">{description}</p>
+      </div>
+    </ModalSheet>
+  );
+}
+
+FILE: src/components/ActionSheet.jsx
+import React, { useRef } from "react";
+import ModalSheet from "./ModalSheet.jsx";
+
+export default function ActionSheet({ open, title, onClose, actions }) {
+  const firstRef = useRef(null);
+
+  const footer = null;
+
+  return (
+    <ModalSheet open={open} title={title} onClose={onClose} initialFocusRef={firstRef} footer={footer}>
+      <div className="sheetActions">
+        {actions.map((a, idx) => (
+          <button
+            key={a.key}
+            ref={idx === 0 ? firstRef : null}
+            type="button"
+            className={`sheetActions__item ${a.danger ? "sheetActions__item--danger" : ""}`}
+            onClick={a.onClick}
+          >
+            {a.label}
+          </button>
+        ))}
+        <button type="button" className="sheetActions__item sheetActions__item--ghost" onClick={onClose}>
+          Đóng
+        </button>
+      </div>
+    </ModalSheet>
+  );
+}
+
+FILE: src/components/Toast.jsx
+import React, { useEffect, useRef } from "react";
+
+export default function Toast({ toast, onClose }) {
+  const liveRef = useRef(null);
+
+  useEffect(() => {
+    if (!toast) return;
+    // Announce on show
+    liveRef.current?.focus?.();
+  }, [toast]);
+
+  if (!toast) return null;
+
+  return (
+    <div className="toastWrap" role="status" aria-live="polite">
+      <div className="toast" tabIndex={-1} ref={liveRef}>
+        <div className="toast__msg">{toast.message}</div>
+        <div className="toast__actions">
+          {toast.actionLabel && typeof toast.onAction === "function" ? (
+            <button
+              type="button"
+              className="toast__button"
+              onClick={() => {
+                toast.onAction?.();
+                onClose?.();
+              }}
+            >
+              {toast.actionLabel}
+            </button>
+          ) : null}
+          <button type="button" className="toast__close" onClick={onClose} aria-label="Đóng thông báo">
+            ✕
           </button>
         </div>
       </div>
@@ -927,503 +961,958 @@ export default function ConfirmDialog({
   );
 }
 
-FILE: src/utils/storage.js
-/**
- * @typedef {{id: string, title: string, completed: boolean, createdAt?: number}} Task
- */
+FILE: src/pages/HomePage.jsx
+import React, { useMemo, useState } from "react";
+import AppHeader from "../components/AppHeader.jsx";
+import SearchBar from "../components/SearchBar.jsx";
+import FilterChips from "../components/FilterChips.jsx";
+import TaskList from "../components/TaskList.jsx";
+import FabAddButton from "../components/FabAddButton.jsx";
+import TaskModal from "../components/TaskModal.jsx";
+import ConfirmDialog from "../components/ConfirmDialog.jsx";
+import ActionSheet from "../components/ActionSheet.jsx";
+import { useDebouncedValue } from "../utils/debounce.js";
 
-export function loadTasks(key) {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter((t) => t && typeof t === "object")
-      .map((t) => ({
-        id: String(t.id ?? ""),
-        title: String(t.title ?? ""),
-        completed: Boolean(t.completed),
-        createdAt: typeof t.createdAt === "number" ? t.createdAt : undefined
-      }))
-      .filter((t) => t.id && t.title);
-  } catch {
-    return [];
-  }
+function matchesQuery(title, q) {
+  const query = (q || "").trim().toLowerCase();
+  if (!query) return true;
+  return (title || "").toLowerCase().includes(query);
 }
 
-/**
- * @param {string} key
- * @param {Task[]} tasks
- */
-export function saveTasks(key, tasks) {
-  try {
-    localStorage.setItem(key, JSON.stringify(tasks));
-  } catch {
-    // ignore write errors (quota, private mode, etc.)
-  }
+function filterTasks(tasks, filter, q) {
+  const query = (q || "").trim();
+  const byStatus =
+    filter === "all" ? tasks : tasks.filter((t) => (filter === "active" ? t.status === "active" : t.status === "completed"));
+  if (!query) return byStatus;
+  return byStatus.filter((t) => matchesQuery(t.title, query));
 }
 
-FILE: src/utils/uuid.js
-export function createId() {
-  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
-  // Fallback
-  return `id_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+export default function HomePage({
+  hydrated,
+  tasks,
+  filter,
+  searchQuery,
+  onChangeFilter,
+  onChangeSearch,
+  onAddTask,
+  onUpdateTask,
+  onToggleTask,
+  onDeleteTask,
+  onShowToast
+}) {
+  const [isAddOpen, setIsAddOpen] = useState(false);
+  const [editingTaskId, setEditingTaskId] = useState(null);
+  const [confirmDeleteTaskId, setConfirmDeleteTaskId] = useState(null);
+  const [actionTaskId, setActionTaskId] = useState(null);
+
+  const debouncedQuery = useDebouncedValue(searchQuery, 200);
+
+  const visibleTasks = useMemo(() => {
+    return filterTasks(tasks, filter, debouncedQuery);
+  }, [tasks, filter, debouncedQuery]);
+
+  const editingTask = useMemo(() => {
+    if (!editingTaskId) return null;
+    return tasks.find((t) => t.id === editingTaskId) ?? null;
+  }, [tasks, editingTaskId]);
+
+  const actionTask = useMemo(() => {
+    if (!actionTaskId) return null;
+    return tasks.find((t) => t.id === actionTaskId) ?? null;
+  }, [tasks, actionTaskId]);
+
+  const emptyText = useMemo(() => {
+    const q = (debouncedQuery || "").trim();
+    if (q) return "Không tìm thấy việc phù hợp.";
+    if (filter === "completed") return "Chưa có việc hoàn thành.";
+    if (filter === "active") return "Chưa có việc đang làm.";
+    return "Chưa có việc nào. Thêm việc đầu tiên.";
+  }, [filter, debouncedQuery]);
+
+  return (
+    <div className="page">
+      <AppHeader title="Todo" />
+
+      <main className="content">
+        <div className="topControls">
+          <SearchBar value={searchQuery} onChange={onChangeSearch} />
+          <FilterChips value={filter} onChange={onChangeFilter} />
+        </div>
+
+        {!hydrated ? (
+          <div className="loading" aria-label="Đang tải">
+            <div className="spinner" aria-hidden="true" />
+            <div className="muted">Đang tải...</div>
+          </div>
+        ) : visibleTasks.length > 0 ? (
+          <TaskList
+            tasks={visibleTasks}
+            onToggle={onToggleTask}
+            onOpenEdit={(id) => setEditingTaskId(id)}
+            onOpenActions={(id) => setActionTaskId(id)}
+          />
+        ) : (
+          <div className="empty" role="status" aria-live="polite">
+            <div className="empty__card">
+              <div className="empty__title">{emptyText}</div>
+              <button type="button" className="button button--primary button--block" onClick={() => setIsAddOpen(true)}>
+                Thêm việc
+              </button>
+            </div>
+          </div>
+        )}
+      </main>
+
+      <FabAddButton onClick={() => setIsAddOpen(true)} />
+
+      <TaskModal
+        open={isAddOpen}
+        mode="add"
+        task={null}
+        onClose={() => setIsAddOpen(false)}
+        onSubmit={({ title, note }) => {
+          onAddTask({ title, note });
+          setIsAddOpen(false);
+          onShowToast?.({ message: "Đã thêm việc" });
+        }}
+      />
+
+      <TaskModal
+        open={Boolean(editingTaskId && editingTask)}
+        mode="edit"
+        task={editingTask}
+        onClose={() => setEditingTaskId(null)}
+        onRequestDelete={() => {
+          if (!editingTaskId) return;
+          setConfirmDeleteTaskId(editingTaskId);
+        }}
+        onSubmit={({ title, note, status }) => {
+          if (!editingTaskId) return;
+          onUpdateTask({ id: editingTaskId, title, note, status });
+          setEditingTaskId(null);
+          onShowToast?.({ message: "Đã lưu thay đổi" });
+        }}
+      />
+
+      <ConfirmDialog
+        open={Boolean(confirmDeleteTaskId)}
+        title="Xoá việc?"
+        description="Hành động này sẽ xoá việc khỏi danh sách. Bạn có thể hoàn tác ngay sau đó."
+        confirmLabel="Xoá"
+        danger
+        onClose={() => setConfirmDeleteTaskId(null)}
+        onConfirm={() => {
+          const id = confirmDeleteTaskId;
+          setConfirmDeleteTaskId(null);
+          setEditingTaskId(null);
+          setActionTaskId(null);
+          if (!id) return;
+          onDeleteTask(id);
+        }}
+      />
+
+      <ActionSheet
+        open={Boolean(actionTaskId && actionTask)}
+        title="Tùy chọn"
+        onClose={() => setActionTaskId(null)}
+        actions={[
+          {
+            key: "edit",
+            label: "Sửa",
+            onClick: () => {
+              const id = actionTaskId;
+              setActionTaskId(null);
+              if (id) setEditingTaskId(id);
+            }
+          },
+          {
+            key: "delete",
+            label: "Xoá",
+            danger: true,
+            onClick: () => {
+              const id = actionTaskId;
+              setActionTaskId(null);
+              if (id) setConfirmDeleteTaskId(id);
+            }
+          }
+        ]}
+      />
+    </div>
+  );
+}
+
+FILE: src/pages/SettingsPage.jsx
+import React, { useState } from "react";
+import AppHeader from "../components/AppHeader.jsx";
+import ConfirmDialog from "../components/ConfirmDialog.jsx";
+
+export default function SettingsPage({ theme, onChangeTheme, onClearAll, onShowToast }) {
+  const [confirmClear, setConfirmClear] = useState(false);
+
+  return (
+    <div className="page">
+      <AppHeader title="Cài đặt" />
+
+      <main className="content">
+        <div className="card">
+          <div className="card__title">Giao diện</div>
+
+          <div className="radioGroup" role="radiogroup" aria-label="Chế độ tối">
+            <label className="radioItem">
+              <input
+                type="radio"
+                name="theme"
+                value="system"
+                checked={theme === "system"}
+                onChange={() => onChangeTheme("system")}
+              />
+              <span>Theo hệ thống</span>
+            </label>
+            <label className="radioItem">
+              <input
+                type="radio"
+                name="theme"
+                value="light"
+                checked={theme === "light"}
+                onChange={() => onChangeTheme("light")}
+              />
+              <span>Sáng</span>
+            </label>
+            <label className="radioItem">
+              <input
+                type="radio"
+                name="theme"
+                value="dark"
+                checked={theme === "dark"}
+                onChange={() => onChangeTheme("dark")}
+              />
+              <span>Tối</span>
+            </label>
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="card__title">Dữ liệu</div>
+          <button
+            type="button"
+            className="button button--danger button--block"
+            onClick={() => setConfirmClear(true)}
+          >
+            Xoá tất cả dữ liệu
+          </button>
+          <div className="hint">Không thể khôi phục sau khi xoá.</div>
+        </div>
+
+        <div className="card">
+          <div className="card__title">Thông tin</div>
+          <div className="kv">
+            <div className="kv__key">Phiên bản</div>
+            <div className="kv__val">v1.0</div>
+          </div>
+        </div>
+      </main>
+
+      <ConfirmDialog
+        open={confirmClear}
+        title="Xoá tất cả dữ liệu?"
+        description="Tất cả các việc sẽ bị xoá khỏi thiết bị này."
+        confirmLabel="Xoá"
+        danger
+        onClose={() => setConfirmClear(false)}
+        onConfirm={() => {
+          setConfirmClear(false);
+          onClearAll();
+          onShowToast?.({ message: "Đã xoá tất cả dữ liệu" });
+        }}
+      />
+    </div>
+  );
 }
 
 FILE: src/styles.css
-:root{
-  --bg: #F7F7F8;
-  --card: #FFFFFF;
-  --text: #111827;
-  --muted: #6B7280;
-  --border: #E5E7EB;
-  --primary: #2563EB;
-  --primary-ink: #FFFFFF;
-  --danger: #DC2626;
-  --shadow: 0 8px 24px rgba(17, 24, 39, 0.08);
-  --radius: 12px;
-  --focus: 0 0 0 3px rgba(37, 99, 235, 0.22);
+:root {
+  --bg: #ffffff;
+  --text: #0b0b0c;
+  --muted: rgba(11, 11, 12, 0.65);
+  --card: #f4f4f5;
+  --card2: #ededf0;
+  --border: rgba(11, 11, 12, 0.12);
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+  --primary: #2563eb;
+  --primaryText: #ffffff;
+  --danger: #dc2626;
+  --focus: rgba(37, 99, 235, 0.45);
+  --chip: rgba(11, 11, 12, 0.06);
+  --chipActive: rgba(37, 99, 235, 0.14);
 }
 
-*{ box-sizing:border-box; }
+:root[data-theme="dark"] {
+  --bg: #0b0b0c;
+  --text: #f5f5f7;
+  --muted: rgba(245, 245, 247, 0.68);
+  --card: rgba(255, 255, 255, 0.06);
+  --card2: rgba(255, 255, 255, 0.09);
+  --border: rgba(255, 255, 255, 0.12);
+  --shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
+  --primary: #3b82f6;
+  --primaryText: #0b0b0c;
+  --danger: #ef4444;
+  --focus: rgba(59, 130, 246, 0.55);
+  --chip: rgba(255, 255, 255, 0.08);
+  --chipActive: rgba(59, 130, 246, 0.22);
+}
+
+* { box-sizing: border-box; }
 html, body { height: 100%; }
-body{
+body {
   margin: 0;
-  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
   background: var(--bg);
   color: var(--text);
 }
 
-.appRoot{
-  min-height: 100%;
-  padding: 18px 12px 32px;
-}
+a { color: inherit; text-decoration: none; }
 
-.container{
-  max-width: 880px;
-  margin: 0 auto;
-}
-
-.header{
-  margin: 6px 0 14px;
-  display:flex;
-  align-items:center;
-  justify-content: space-between;
-}
-
-.brand{
-  display:flex;
-  align-items:center;
-  gap: 12px;
-}
-
-.brandMark{
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
-  display:grid;
-  place-items:center;
-  background: rgba(37,99,235,0.12);
-  color: var(--primary);
-  border: 1px solid rgba(37,99,235,0.18);
-  font-weight: 800;
-}
-
-.title{
-  margin: 0;
-  font-size: 22px;
-  letter-spacing: -0.02em;
-}
-
-.subtitle{
-  margin: 2px 0 0;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.card{
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  padding: 14px;
-}
-
-.section{
-  padding: 10px 6px;
-}
-
-.sectionHeader{
-  margin-bottom: 10px;
-  display:flex;
-  align-items:center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.sectionTitle{
-  margin: 0;
-  font-size: 13px;
-  font-weight: 700;
-  color: #374151;
-}
-
-.row{
-  display:flex;
-  align-items:center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.rowMeta{
-  margin-top: 8px;
-  align-items: flex-start;
-}
-
-.metaLeft{
-  min-height: 18px;
-}
-
-.inputGroup{
-  width: 100%;
-  display:flex;
-  gap: 10px;
-  align-items: stretch;
-}
-
-.textInput{
-  width: 100%;
-  height: 42px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  background: #fff;
-  color: var(--text);
-  outline: none;
-  transition: box-shadow .15s ease, border-color .15s ease;
-}
-
-.textInput:focus-visible{
-  box-shadow: var(--focus);
-  border-color: rgba(37,99,235,0.45);
-}
-
-.textInput.isInvalid{
-  border-color: rgba(220,38,38,0.6);
-  box-shadow: 0 0 0 3px rgba(220,38,38,0.14);
-}
-
-.btn{
-  height: 42px;
-  padding: 10px 14px;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  background: #fff;
-  color: var(--text);
-  cursor: pointer;
-  font-weight: 600;
-  transition: transform .02s ease, background .12s ease, border-color .12s ease;
-  user-select:none;
-}
-
-.btn:active{ transform: translateY(1px); }
-
-.btn:focus-visible{
-  outline: none;
-  box-shadow: var(--focus);
-}
-
-.btn:disabled{
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-.btnPrimary{
-  border-color: rgba(37,99,235,0.35);
-  background: var(--primary);
-  color: var(--primary-ink);
-}
-
-.btnPrimary:hover{ filter: brightness(0.98); }
-
-.btnDanger{
-  border-color: rgba(220,38,38,0.45);
-  background: var(--danger);
-  color: #fff;
-}
-
-.btnGhost{
-  background: #fff;
-}
-
-.hintText{
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.errorText{
-  font-size: 12px;
-  color: var(--danger);
-  font-weight: 600;
-}
-
-.counterText{
-  font-size: 12px;
-  color: var(--muted);
-  white-space: nowrap;
-}
-
-.controlsGrid{
-  display:flex;
-  align-items:center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.controlsLeft{
-  flex: 1 1 auto;
-  min-width: 240px;
-}
-
-.controlsRight{
-  flex: 1 1 auto;
-  min-width: 260px;
-  display:flex;
-  justify-content: flex-end;
-  gap: 10px;
-  align-items:center;
-  flex-wrap: wrap;
-}
-
-.tabs{
-  display:inline-flex;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: #fff;
-  padding: 3px;
-  gap: 3px;
-}
-
-.tab{
-  border: 0;
-  background: transparent;
-  cursor:pointer;
-  padding: 8px 12px;
-  border-radius: 10px;
-  font-weight: 700;
-  color: #374151;
-}
-
-.tab:focus-visible{
-  outline:none;
-  box-shadow: var(--focus);
-}
-
-.tab.isActive{
-  background: rgba(37,99,235,0.12);
-  color: var(--primary);
-}
-
-.searchWrap{
-  min-width: 220px;
-  flex: 1 1 220px;
-}
-
-.todoList{
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display:flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.todoItem{
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: #fff;
-  padding: 10px;
-}
-
-.todoItem.isCompleted{
-  background: #FBFBFC;
-}
-
-.todoMain{
-  display:flex;
-  align-items: flex-start;
-  gap: 10px;
-}
-
-.todoCheck{
-  padding-top: 2px;
-}
-
-.todoCheck input[type="checkbox"]{
-  width: 18px;
-  height: 18px;
-  cursor: pointer;
-  accent-color: var(--primary);
-}
-
-.todoContent{
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.todoTitle{
-  display:block;
-  font-weight: 700;
-  line-height: 1.35;
-  cursor: default;
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-
-.todoItem.isCompleted .todoTitle{
-  text-decoration: line-through;
-  color: #9CA3AF;
-}
-
-.todoMeta{
-  margin-top: 4px;
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.todoActions{
-  flex: 0 0 auto;
-  display:flex;
-  gap: 6px;
-  align-items:center;
-}
-
-.iconBtn{
-  width: 38px;
-  height: 38px;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  background: #fff;
-  cursor: pointer;
-  display:grid;
-  place-items:center;
-  color: #374151;
-}
-
-.iconBtn:hover{
-  background: #F9FAFB;
-}
-
-.iconBtn:focus-visible{
-  outline:none;
-  box-shadow: var(--focus);
-}
-
-.iconBtn.danger{
-  color: var(--danger);
-  border-color: rgba(220,38,38,0.25);
-}
-
-.editWrap .textInput{
-  height: 40px;
-  border-radius: 12px;
-}
-
-.editMetaRow{
-  margin-top: 8px;
-  display:flex;
-  justify-content: space-between;
-  gap: 10px;
-  align-items: flex-start;
-}
-
-.emptyState{
-  padding: 14px;
-  border: 1px dashed var(--border);
-  border-radius: 12px;
-  background: #fff;
-  color: var(--muted);
-  font-weight: 600;
-}
-
-.footerStats{
-  margin-top: 8px;
-  padding: 10px 6px 2px;
-  display:flex;
-  justify-content: space-between;
-  color: var(--muted);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.srOnly{
-  position:absolute;
+.srOnly {
+  position: absolute;
   width: 1px;
   height: 1px;
   padding: 0;
   margin: -1px;
   overflow: hidden;
-  clip: rect(0,0,0,0);
+  clip: rect(0, 0, 0, 0);
   white-space: nowrap;
-  border: 0;
+  border-width: 0;
 }
 
-/* Modal */
-.modalOverlay{
-  position: fixed;
-  inset: 0;
-  background: rgba(17,24,39,0.45);
-  display:grid;
-  place-items:center;
-  padding: 18px 12px;
-  z-index: 50;
+.app {
+  min-height: 100%;
 }
 
-.modal{
-  width: 100%;
-  max-width: 460px;
-  background: #fff;
+.page {
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  height: 56px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: color-mix(in oklab, var(--bg) 92%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+}
+
+.header__left, .header__right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.header__title {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.iconButton {
+  height: 44px;
+  min-width: 44px;
+  padding: 0 10px;
   border: 1px solid var(--border);
-  border-radius: 14px;
-  box-shadow: var(--shadow);
+  background: transparent;
+  color: var(--text);
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.iconButton:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus);
+}
+
+.content {
+  flex: 1;
+  padding: 12px 12px calc(92px + env(safe-area-inset-bottom));
+  max-width: 720px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.topControls {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  border-radius: 16px;
+}
+
+.search__input {
+  flex: 1;
+  height: 40px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 15px;
+}
+
+.search__clear {
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.search__clear:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus);
+}
+
+.chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.chip {
+  height: 40px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--chip);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.chip--active {
+  background: var(--chipActive);
+  border-color: color-mix(in oklab, var(--primary) 45%, var(--border));
+}
+
+.chip:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus);
+}
+
+.taskList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.taskItem {
+  display: grid;
+  grid-template-columns: 44px 1fr 44px;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 8px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  border-radius: 16px;
+}
+
+.taskItem__checkbox {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.checkbox {
+  width: 22px;
+  height: 22px;
+  accent-color: var(--primary);
+}
+
+.taskItem__content {
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 6px 6px;
+  border-radius: 12px;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.taskItem__content:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus);
+}
+
+.taskItem__title {
+  font-size: 15px;
+  line-height: 1.25;
+  font-weight: 650;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
 }
 
-.modalHeader{
-  padding: 14px 14px 0;
+.taskItem__note {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
-.modalTitle{
+.taskItem__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.taskItem--completed .taskItem__title {
+  text-decoration: line-through;
+  opacity: 0.7;
+  font-weight: 600;
+}
+
+.taskItem--completed .taskItem__note {
+  opacity: 0.7;
+}
+
+.fab {
+  position: fixed;
+  right: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  width: 56px;
+  height: 56px;
+  border-radius: 999px;
+  border: 0;
+  background: var(--primary);
+  color: var(--primaryText);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  z-index: 20;
+}
+
+.fab:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus), var(--shadow);
+}
+
+.fab__plus {
+  font-size: 32px;
+  line-height: 0;
+  display: inline-block;
+  transform: translateY(-1px);
+}
+
+.empty {
+  display: grid;
+  place-items: center;
+  padding: 30px 0;
+}
+
+.empty__card {
+  width: 100%;
+  padding: 16px;
+  border: 1px dashed var(--border);
+  border-radius: 16px;
+  background: color-mix(in oklab, var(--card) 75%, transparent);
+  display: grid;
+  gap: 12px;
+}
+
+.empty__title {
+  font-size: 15px;
+  color: var(--muted);
+  font-weight: 650;
+}
+
+.loading {
+  display: grid;
+  place-items: center;
+  gap: 12px;
+  padding: 24px 0;
+  color: var(--muted);
+}
+
+.spinner {
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  border: 3px solid var(--border);
+  border-top-color: var(--primary);
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.muted { color: var(--muted); }
+
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+}
+
+.modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.46);
+}
+
+.modal__panel {
+  position: relative;
+  width: min(720px, calc(100% - 24px));
+  margin: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  max-height: min(82svh, 720px);
+  overflow: hidden;
+}
+
+.modal--sheet .modal__panel {
+  width: 100%;
   margin: 0;
+  border-radius: 18px 18px 0 0;
+  border-left: 0;
+  border-right: 0;
+  border-bottom: 0;
+  align-self: end;
+  max-height: 88svh;
+}
+
+.modal__handle {
+  width: 44px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--border);
+  margin: 10px auto 6px auto;
+}
+
+.modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.modal__title {
   font-size: 16px;
   font-weight: 800;
   letter-spacing: -0.01em;
 }
 
-.modalBody{
-  padding: 10px 14px 14px;
-  color: #374151;
+.modal__content {
+  padding: 12px;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
-.modalFooter{
-  padding: 12px 14px 14px;
-  display:flex;
-  justify-content: flex-end;
-  gap: 10px;
+.modal__footer {
+  padding: 12px;
   border-top: 1px solid var(--border);
-  background: #FCFCFD;
+  background: color-mix(in oklab, var(--bg) 88%, var(--card));
 }
 
-/* Responsive tweaks */
-@media (max-width: 520px){
-  .container { max-width: 100%; }
-  .card { padding: 12px; }
-  .inputGroup{ flex-direction: column; }
-  .btn, .textInput{ width: 100%; }
-  .controlsRight{ justify-content: stretch; }
-  .searchWrap{ min-width: 100%; }
-  .tabs{ width: 100%; justify-content: space-between; }
-  .tab{ flex: 1 1 auto; text-align: center; }
+.form {
+  display: grid;
+  gap: 10px;
+}
+
+.label {
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.required { color: var(--danger); }
+
+.input, .textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  border-radius: 14px;
+  padding: 12px;
+  font-size: 15px;
+  outline: none;
+}
+
+.textarea { resize: vertical; }
+
+.input:focus, .textarea:focus {
+  box-shadow: 0 0 0 3px var(--focus);
+  border-color: color-mix(in oklab, var(--primary) 55%, var(--border));
+}
+
+.input--error {
+  border-color: color-mix(in oklab, var(--danger) 60%, var(--border));
+}
+
+.errorText {
+  color: var(--danger);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 650;
+  padding: 8px 0;
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.modalFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.modalFooter__right {
+  display: flex;
+  gap: 10px;
+}
+
+.button {
+  height: 44px;
+  padding: 0 14px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 750;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.button--block { width: 100%; }
+
+.button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus);
+}
+
+.button--primary {
+  border-color: color-mix(in oklab, var(--primary) 65%, var(--border));
+  background: var(--primary);
+  color: var(--primaryText);
+}
+
+.button--ghost {
+  background: transparent;
+}
+
+.button--danger {
+  border-color: color-mix(in oklab, var(--danger) 55%, var(--border));
+  background: var(--danger);
+  color: #fff;
+}
+
+.button--danger.button--ghost {
+  background: transparent;
+  color: var(--danger);
+}
+
+.confirm__desc {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.toastWrap {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(12px + env(safe-area-inset-bottom));
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  padding: 0 12px;
+}
+
+.toast {
+  pointer-events: auto;
+  width: min(520px, 100%);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: color-mix(in oklab, var(--bg) 80%, #000 20%);
+  box-shadow: var(--shadow);
+}
+
+:root[data-theme="dark"] .toast {
+  background: color-mix(in oklab, var(--bg) 86%, #fff 14%);
+}
+
+.toast__msg {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.toast__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toast__button {
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.toast__close {
+  height: 36px;
+  min-width: 36px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.toast__button:focus-visible, .toast__close:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus);
+}
+
+.card {
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  display: grid;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.card__title {
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.radioGroup {
+  display: grid;
+  gap: 10px;
+}
+
+.radioItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--card2);
+  cursor: pointer;
+}
+
+.radioItem input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--primary);
+}
+
+.kv {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.kv__key { font-weight: 700; }
+.kv__val { font-weight: 800; color: var(--text); }
+
+.sheetActions {
+  display: grid;
+  gap: 10px;
+}
+
+.sheetActions__item {
+  height: 48px;
+  width: 100%;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.sheetActions__item--danger {
+  border-color: color-mix(in oklab, var(--danger) 55%, var(--border));
+  color: var(--danger);
+}
+
+.sheetActions__item--ghost {
+  background: transparent;
+  color: var(--muted);
+}
+
+.sheetActions__item:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus);
 }

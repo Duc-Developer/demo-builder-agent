@@ -1,76 +1,35 @@
-import React, { useEffect, useId, useRef } from "react";
+import React, { useEffect, useRef } from "react";
+import ModalSheet from "./ModalSheet.jsx";
 
-/**
- * @param {{
- *  open: boolean,
- *  title: string,
- *  message: string,
- *  confirmText?: string,
- *  cancelText?: string,
- *  onConfirm: () => void,
- *  onCancel: () => void
- * }} props
- */
-export default function ConfirmDialog({
-  open,
-  title,
-  message,
-  confirmText = "Xóa",
-  cancelText = "Hủy",
-  onConfirm,
-  onCancel
-}) {
-  const titleId = useId();
-  const messageId = useId();
-  const cancelBtnRef = useRef(null);
+export default function ConfirmDialog({ open, title, description, confirmLabel, danger, onConfirm, onClose }) {
+  const confirmRef = useRef(null);
 
   useEffect(() => {
-    if (!open) return;
-    const onKeyDown = (e) => {
-      if (e.key === "Escape") onCancel();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    cancelBtnRef.current?.focus();
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [open, onCancel]);
+    // handled by ModalSheet focus trap
+  }, []);
 
-  if (!open) return null;
+  const footer = (
+    <div className="modalFooter">
+      <button type="button" className="button button--ghost" onClick={onClose}>
+        Huỷ
+      </button>
+      <button
+        ref={confirmRef}
+        type="button"
+        className={`button ${danger ? "button--danger" : "button--primary"}`}
+        onClick={onConfirm}
+      >
+        {confirmLabel}
+      </button>
+    </div>
+  );
 
   return (
-    <div
-      className="modalOverlay"
-      role="presentation"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onCancel();
-      }}
-    >
-      <div
-        className="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={messageId}
-      >
-        <div className="modalHeader">
-          <h3 id={titleId} className="modalTitle">
-            {title || "Xác nhận"}
-          </h3>
-        </div>
-
-        <div id={messageId} className="modalBody">
-          {message}
-        </div>
-
-        <div className="modalFooter">
-          <button ref={cancelBtnRef} type="button" className="btn" onClick={onCancel}>
-            {cancelText}
-          </button>
-          <button type="button" className="btn btnDanger" onClick={onConfirm}>
-            {confirmText}
-          </button>
-        </div>
+    <ModalSheet open={open} title={title} onClose={onClose} initialFocusRef={confirmRef} footer={footer}>
+      <div className="confirm">
+        <p className="confirm__desc">{description}</p>
       </div>
-    </div>
+    </ModalSheet>
   );
 }
 

@@ -13,10 +13,19 @@ import shutil
 from dotenv import load_dotenv
 
 from demo.crew import Demo
+from demo.langfuse_utils import flush_langfuse, get_current_trace_url, healthcheck_langfuse, observe, set_current_trace_io, update_observation
 
 warnings.filterwarnings("ignore", category=SyntaxWarning, module="pysbd")
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[2] / ".env")
+
+
+def _langfuse_run_metadata(inputs: dict[str, str], flow_name: str) -> dict[str, str]:
+    return {
+        "flow_name": flow_name,
+        "topic": inputs.get("topic", ""),
+        "us": inputs.get("us", ""),
+    }
 
 
 def _prompt_topic() -> str:
@@ -203,20 +212,40 @@ def _prompt_human_action(agent_name: str, result_preview: str) -> tuple[str, str
 def _run_with_feedback(agent_name: str, runner, base_inputs: dict[str, str]):
     feedback_notes: list[str] = []
 
-    while True:
-        run_inputs = dict(base_inputs)
-        if feedback_notes:
-            run_inputs["human_feedback"] = "\n\n".join(feedback_notes)
-        result = runner(run_inputs)
-        raw_result = str(getattr(result, "raw", result)).strip()
-        action, feedback = _prompt_human_action(agent_name, raw_result)
+    with observe(
+        f"{agent_name.lower().replace(' ', '_')}_crew",
+        input=base_inputs,
+        metadata={"agent_name": agent_name},
+        as_type="chain",
+    ) as observation:
+        while True:
+            run_inputs = dict(base_inputs)
+            if feedback_notes:
+                run_inputs["human_feedback"] = "\n\n".join(feedback_notes)
+            result = runner(run_inputs)
+            raw_result = str(getattr(result, "raw", result)).strip()
+            update_observation(
+                observation,
+                input=run_inputs,
+                output=raw_result,
+                metadata={
+                    "agent_name": agent_name,
+                    "feedback_count": len(feedback_notes),
+                },
+            )
+            action, feedback = _prompt_human_action(agent_name, raw_result)
 
-        if action == "continue":
-            return result
-        if action == "cancel":
-            raise RuntimeError(f"Flow cancelled before writing {agent_name} result.")
+            if action == "continue":
+                return result
+            if action == "cancel":
+                update_observation(
+                    observation,
+                    level="WARNING",
+                    status_message="Flow cancelled by user before persisting result.",
+                )
+                raise RuntimeError(f"Flow cancelled before writing {agent_name} result.")
 
-        feedback_notes.append(feedback)
+            feedback_notes.append(feedback)
 
 async def _run_parallel_crews(inputs: dict[str, str], business_context: str) -> tuple[object, object]:
     demo = Demo()
@@ -225,53 +254,102 @@ async def _run_parallel_crews(inputs: dict[str, str], business_context: str) -> 
         "business_analysis": business_context,
         "existing_app_context": _collect_existing_app_context() or "No existing app context.",
     }
-    frontend_result = await asyncio.to_thread(
-        _run_with_feedback,
-        "Frontend Developer",
-        lambda current_inputs: demo.frontend_developer_crew().kickoff(inputs=current_inputs),
-        parallel_inputs,
-    )
-    manual_result = await asyncio.to_thread(
-        _run_with_feedback,
-        "Manual Tester",
-        lambda current_inputs: demo.manual_tester_crew().kickoff(inputs=current_inputs),
-        parallel_inputs,
-    )
-    return frontend_result, manual_result
+    with observe(
+        "parallel_crews",
+        input={"inputs": inputs, "business_context": business_context},
+        metadata=_langfuse_run_metadata(inputs, "parallel_crews"),
+        as_type="chain",
+    ) as observation:
+        frontend_result = await asyncio.to_thread(
+            _run_with_feedback,
+            "Frontend Developer",
+            lambda current_inputs: demo.frontend_developer_crew().kickoff(inputs=current_inputs),
+            parallel_inputs,
+        )
+        manual_result = await asyncio.to_thread(
+            _run_with_feedback,
+            "Manual Tester",
+            lambda current_inputs: demo.manual_tester_crew().kickoff(inputs=current_inputs),
+            parallel_inputs,
+        )
+        update_observation(
+            observation,
+            output={
+                "frontend_result": str(getattr(frontend_result, "raw", frontend_result)).strip(),
+                "manual_result": str(getattr(manual_result, "raw", manual_result)).strip(),
+            },
+        )
+        return frontend_result, manual_result
 
 
 def _run_and_materialize(inputs: dict[str, str]) -> None:
     demo = Demo()
-    business_result = _run_with_feedback(
-        "Business Analytics",
-        lambda current_inputs: demo.business_analytics_crew().kickoff(inputs=current_inputs),
-        inputs,
-    )
-    _update_issue_by_us_label(
-        us=inputs["us"],
-        role_label="business-analytics",
-        title=f"Business Analytics - {inputs['topic']}",
-        body=str(getattr(business_result, "raw", business_result)).strip(),
-    )
-    _, manual_result = asyncio.run(
-        _run_parallel_crews(inputs, str(getattr(business_result, "raw", business_result)).strip())
-    )
-    _extract_frontend_app()
-    _update_issue_by_us_label(
-        us=inputs["us"],
-        role_label="manual-tester",
-        title=f"Manual Tester - {inputs['topic']}",
-        body=str(getattr(manual_result, "raw", manual_result)).strip(),
-    )
+    with observe(
+        "run_and_materialize",
+        input=inputs,
+        metadata=_langfuse_run_metadata(inputs, "run_and_materialize"),
+        as_type="chain",
+    ) as observation:
+        business_result = _run_with_feedback(
+            "Business Analytics",
+            lambda current_inputs: demo.business_analytics_crew().kickoff(inputs=current_inputs),
+            inputs,
+        )
+        business_output = str(getattr(business_result, "raw", business_result)).strip()
+        _update_issue_by_us_label(
+            us=inputs["us"],
+            role_label="business-analytics",
+            title=f"Business Analytics - {inputs['topic']}",
+            body=business_output,
+        )
+        frontend_result, manual_result = asyncio.run(
+            _run_parallel_crews(inputs, business_output)
+        )
+        _extract_frontend_app()
+        manual_output = str(getattr(manual_result, "raw", manual_result)).strip()
+        _update_issue_by_us_label(
+            us=inputs["us"],
+            role_label="manual-tester",
+            title=f"Manual Tester - {inputs['topic']}",
+            body=manual_output,
+        )
+        update_observation(
+            observation,
+            output={
+                "business_analytics": business_output,
+                "frontend_developer": str(getattr(frontend_result, "raw", frontend_result)).strip(),
+                "manual_tester": manual_output,
+                "trace_url": get_current_trace_url(),
+            },
+        )
 
 def run():
     """Run the crew."""
     inputs = _build_inputs(_prompt_topic(), _prompt_us())
 
-    try:
-        _run_and_materialize(inputs)
-    except Exception as e:
-        raise Exception(f"An error occurred while running the crew: {e}")
+    with observe(
+        "run",
+        input=inputs,
+        metadata=_langfuse_run_metadata(inputs, "run"),
+        as_type="chain",
+    ) as observation:
+        try:
+            set_current_trace_io(input=inputs)
+            _run_and_materialize(inputs)
+            update_observation(
+                observation,
+                output={"status": "success", "trace_url": get_current_trace_url()},
+            )
+        except Exception as e:
+            update_observation(
+                observation,
+                output={"status": "error", "error": str(e)},
+                level="ERROR",
+                status_message=str(e),
+            )
+            raise Exception(f"An error occurred while running the crew: {e}")
+        finally:
+            flush_langfuse()
 
 
 def train():
@@ -324,8 +402,35 @@ def run_with_trigger():
         ),
     }
 
-    try:
-        _run_and_materialize(inputs)
-        return None
-    except Exception as e:
-        raise Exception(f"An error occurred while running the crew with trigger: {e}")
+    with observe(
+        "run_with_trigger",
+        input=inputs,
+        metadata=_langfuse_run_metadata(inputs, "run_with_trigger"),
+        as_type="chain",
+    ) as observation:
+        try:
+            set_current_trace_io(input=inputs)
+            _run_and_materialize(inputs)
+            update_observation(
+                observation,
+                output={"status": "success", "trace_url": get_current_trace_url()},
+            )
+            return None
+        except Exception as e:
+            update_observation(
+                observation,
+                output={"status": "error", "error": str(e)},
+                level="ERROR",
+                status_message=str(e),
+            )
+            raise Exception(f"An error occurred while running the crew with trigger: {e}")
+        finally:
+            flush_langfuse()
+
+
+def healthcheck_langfuse_command():
+    """Verify Langfuse connection."""
+    if healthcheck_langfuse():
+        print("Langfuse client is authenticated and ready!")
+    else:
+        print("Authentication failed. Please check your credentials and host.")

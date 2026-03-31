@@ -1,234 +1,251 @@
-import React, { useEffect, useMemo, useReducer, useRef, useState } from "react";
-import Header from "./components/Header.jsx";
-import AddTodoForm from "./components/AddTodoForm.jsx";
-import TodoControls from "./components/TodoControls.jsx";
-import TodoList from "./components/TodoList.jsx";
-import FooterStats from "./components/FooterStats.jsx";
-import ConfirmDialog from "./components/ConfirmDialog.jsx";
-import { loadTasks, saveTasks } from "./utils/storage.js";
-import { createId } from "./utils/uuid.js";
+import React, { useEffect, useMemo, useReducer, useRef } from "react";
+import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import HomePage from "./pages/HomePage.jsx";
+import SettingsPage from "./pages/SettingsPage.jsx";
+import { loadTasks, saveTasks } from "./storage/taskStorage.js";
+import { loadTheme, saveTheme, resolveTheme, THEME_KEY } from "./storage/themeStorage.js";
+import Toast from "./components/Toast.jsx";
+import { createId } from "./utils/id.js";
 
-const STORAGE_KEY = "newtodoapp.tasks";
-const TITLE_MAX_LEN = 200;
+const TASKS_KEY = "new-todoapp.tasks.v1";
 
-function tasksReducer(state, action) {
+const initialState = {
+  hydrated: false,
+  tasks: [],
+  filter: "all",
+  searchQuery: "",
+  theme: "system", // system | light | dark
+  toast: null
+};
+
+function sortTasks(tasks) {
+  const active = tasks
+    .filter((t) => t.status === "active")
+    .sort((a, b) => b.createdAt - a.createdAt);
+  const completed = tasks
+    .filter((t) => t.status === "completed")
+    .sort((a, b) => b.createdAt - a.createdAt);
+  return [...active, ...completed];
+}
+
+function reducer(state, action) {
   switch (action.type) {
-    case "init": {
-      return Array.isArray(action.payload) ? action.payload : [];
+    case "HYDRATE": {
+      const tasks = Array.isArray(action.tasks) ? sortTasks(action.tasks) : [];
+      return {
+        ...state,
+        hydrated: true,
+        tasks,
+        theme: action.theme ?? state.theme
+      };
     }
-    case "add": {
+    case "SET_FILTER":
+      return { ...state, filter: action.filter };
+    case "SET_SEARCH":
+      return { ...state, searchQuery: action.query };
+    case "ADD_TASK": {
       const now = Date.now();
       const newTask = {
         id: createId(),
-        title: action.payload.title,
-        completed: false,
-        createdAt: now
+        title: action.title,
+        note: action.note || "",
+        status: "active",
+        createdAt: now,
+        updatedAt: now
       };
-      // Newest on top
-      return [newTask, ...state];
+      return { ...state, tasks: sortTasks([newTask, ...state.tasks]) };
     }
-    case "toggle": {
-      const { id } = action.payload;
-      return state.map((t) => (t.id === id ? { ...t, completed: !t.completed } : t));
+    case "UPDATE_TASK": {
+      const now = Date.now();
+      const tasks = state.tasks.map((t) => {
+        if (t.id !== action.id) return t;
+        return {
+          ...t,
+          title: action.title,
+          note: action.note ?? "",
+          status: action.status ?? t.status,
+          updatedAt: now
+        };
+      });
+      return { ...state, tasks: sortTasks(tasks) };
     }
-    case "updateTitle": {
-      const { id, title } = action.payload;
-      return state.map((t) => (t.id === id ? { ...t, title } : t));
+    case "TOGGLE_TASK": {
+      const now = Date.now();
+      const tasks = state.tasks.map((t) => {
+        if (t.id !== action.id) return t;
+        const nextStatus = t.status === "active" ? "completed" : "active";
+        return { ...t, status: nextStatus, updatedAt: now };
+      });
+      return { ...state, tasks: sortTasks(tasks) };
     }
-    case "remove": {
-      const { id } = action.payload;
-      return state.filter((t) => t.id !== id);
+    case "DELETE_TASK": {
+      const tasks = state.tasks.filter((t) => t.id !== action.id);
+      return { ...state, tasks };
     }
-    case "clearCompleted": {
-      return state.filter((t) => !t.completed);
+    case "RESTORE_TASK": {
+      const tasks = sortTasks([action.task, ...state.tasks]);
+      return { ...state, tasks };
     }
+    case "SET_THEME":
+      return { ...state, theme: action.theme };
+    case "SHOW_TOAST":
+      return { ...state, toast: action.toast };
+    case "HIDE_TOAST":
+      if (!state.toast) return state;
+      if (action.id && state.toast.id !== action.id) return state;
+      return { ...state, toast: null };
+    case "CLEAR_ALL":
+      return { ...state, tasks: [] };
     default:
       return state;
   }
 }
 
-export default function App() {
-  const [tasks, dispatch] = useReducer(tasksReducer, []);
-  const [filter, setFilter] = useState("all"); // all | active | completed
-  const [searchQuery, setSearchQuery] = useState("");
-
-  const [editingTaskId, setEditingTaskId] = useState(null);
-  const [editingTitleDraft, setEditingTitleDraft] = useState("");
-  const [editError, setEditError] = useState("");
-
-  const [confirmState, setConfirmState] = useState({
-    open: false,
-    title: "",
-    message: "",
-    confirmText: "Xóa",
-    intent: /** @type {null | {type: "deleteOne", id: string} | {type: "clearCompleted"}} */ (null)
-  });
-
-  const addInputRef = useRef(null);
-
+function useApplyTheme(theme) {
   useEffect(() => {
-    const initial = loadTasks(STORAGE_KEY);
-    dispatch({ type: "init", payload: initial });
+    const resolved = resolveTheme(theme);
+    const root = document.documentElement;
+    root.dataset.theme = resolved;
+    root.style.colorScheme = resolved;
+
+    if (theme !== "system") return;
+
+    const mq = window.matchMedia?.("(prefers-color-scheme: dark)");
+    if (!mq) return;
+
+    const handler = () => {
+      const r = resolveTheme("system");
+      root.dataset.theme = r;
+      root.style.colorScheme = r;
+    };
+
+    mq.addEventListener?.("change", handler);
+    return () => mq.removeEventListener?.("change", handler);
+  }, [theme]);
+}
+
+export default function App() {
+  const [state, dispatch] = useReducer(reducer, initialState);
+  const toastTimerRef = useRef(null);
+
+  useApplyTheme(state.theme);
+
+  // Hydrate
+  useEffect(() => {
+    const tasks = loadTasks(TASKS_KEY);
+    const theme = loadTheme(THEME_KEY) ?? "system";
+    dispatch({ type: "HYDRATE", tasks, theme });
   }, []);
 
+  // Persist tasks
   useEffect(() => {
-    saveTasks(STORAGE_KEY, tasks);
-  }, [tasks]);
+    if (!state.hydrated) return;
+    saveTasks(TASKS_KEY, state.tasks);
+  }, [state.hydrated, state.tasks]);
 
-  const completedCount = useMemo(() => tasks.reduce((acc, t) => acc + (t.completed ? 1 : 0), 0), [tasks]);
-  const activeCount = useMemo(() => tasks.reduce((acc, t) => acc + (!t.completed ? 1 : 0), 0), [tasks]);
+  // Persist theme
+  useEffect(() => {
+    if (!state.hydrated) return;
+    saveTheme(THEME_KEY, state.theme);
+  }, [state.hydrated, state.theme]);
 
-  const normalizedQuery = searchQuery.trim().toLowerCase();
+  // Toast auto-hide
+  useEffect(() => {
+    if (!state.toast) return;
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => {
+      dispatch({ type: "HIDE_TOAST", id: state.toast?.id });
+    }, state.toast.durationMs ?? 4000);
 
-  const visibleTasks = useMemo(() => {
-    let list = tasks;
+    return () => {
+      if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    };
+  }, [state.toast]);
 
-    if (filter === "active") list = list.filter((t) => !t.completed);
-    if (filter === "completed") list = list.filter((t) => t.completed);
+  const api = useMemo(() => {
+    const showToast = (toast) => {
+      dispatch({
+        type: "SHOW_TOAST",
+        toast: {
+          id: createId(),
+          durationMs: 4200,
+          ...toast
+        }
+      });
+    };
 
-    if (normalizedQuery) {
-      list = list.filter((t) => t.title.toLowerCase().includes(normalizedQuery));
-    }
+    const completeWithUndo = (taskId) => {
+      const prev = state.tasks.find((t) => t.id === taskId);
+      if (!prev) return;
+      dispatch({ type: "TOGGLE_TASK", id: taskId });
 
-    return list;
-  }, [tasks, filter, normalizedQuery]);
+      const willBeCompleted = prev.status === "active";
+      showToast({
+        message: willBeCompleted ? "Đã hoàn thành" : "Đã hoàn tác hoàn thành",
+        actionLabel: "Hoàn tác",
+        onAction: () => dispatch({ type: "TOGGLE_TASK", id: taskId })
+      });
+    };
 
-  const showEmptyAll = tasks.length === 0;
-  const showEmptySearch = tasks.length > 0 && visibleTasks.length === 0;
+    const deleteWithUndo = (taskId) => {
+      const prev = state.tasks.find((t) => t.id === taskId);
+      if (!prev) return;
+      dispatch({ type: "DELETE_TASK", id: taskId });
+      showToast({
+        message: "Đã xoá",
+        actionLabel: "Hoàn tác",
+        onAction: () => dispatch({ type: "RESTORE_TASK", task: prev })
+      });
+    };
 
-  function focusAddInput() {
-    if (addInputRef.current) addInputRef.current.focus();
-  }
-
-  function onAddTask(rawTitle) {
-    const title = rawTitle.trim();
-    if (!title) return { ok: false, error: "Vui lòng nhập nội dung" };
-    const safe = title.slice(0, TITLE_MAX_LEN);
-    dispatch({ type: "add", payload: { title: safe } });
-    focusAddInput();
-    return { ok: true };
-  }
-
-  function startEdit(task) {
-    setEditingTaskId(task.id);
-    setEditingTitleDraft(task.title);
-    setEditError("");
-  }
-
-  function cancelEdit() {
-    setEditingTaskId(null);
-    setEditingTitleDraft("");
-    setEditError("");
-  }
-
-  function commitEdit(taskId) {
-    const title = editingTitleDraft.trim();
-    if (!title) {
-      setEditError("Vui lòng nhập nội dung");
-      return false;
-    }
-    dispatch({ type: "updateTitle", payload: { id: taskId, title: title.slice(0, TITLE_MAX_LEN) } });
-    setEditingTaskId(null);
-    setEditingTitleDraft("");
-    setEditError("");
-    return true;
-  }
-
-  function requestDeleteTask(taskId) {
-    setConfirmState({
-      open: true,
-      title: "Xác nhận",
-      message: "Bạn có chắc muốn xóa việc này?",
-      confirmText: "Xóa",
-      intent: { type: "deleteOne", id: taskId }
-    });
-  }
-
-  function requestClearCompleted() {
-    setConfirmState({
-      open: true,
-      title: "Xác nhận",
-      message: "Xóa tất cả việc đã hoàn thành?",
-      confirmText: "Xóa",
-      intent: { type: "clearCompleted" }
-    });
-  }
-
-  function closeConfirm() {
-    setConfirmState((s) => ({ ...s, open: false, intent: null }));
-  }
-
-  function confirmAction() {
-    const intent = confirmState.intent;
-    if (!intent) return;
-
-    if (intent.type === "deleteOne") {
-      // If deleting the task being edited, exit edit mode.
-      if (editingTaskId === intent.id) cancelEdit();
-      dispatch({ type: "remove", payload: { id: intent.id } });
-    } else if (intent.type === "clearCompleted") {
-      // If currently editing a completed task, exit edit mode after clearing.
-      if (editingTaskId) {
-        const editingTask = tasks.find((t) => t.id === editingTaskId);
-        if (editingTask?.completed) cancelEdit();
-      }
-      dispatch({ type: "clearCompleted" });
-    }
-    closeConfirm();
-  }
+    return {
+      dispatch,
+      showToast,
+      completeWithUndo,
+      deleteWithUndo
+    };
+  }, [state.tasks]);
 
   return (
-    <div className="appRoot">
-      <div className="container">
-        <Header />
+    <div className="app">
+      <Routes>
+        <Route
+          path="/"
+          element={
+            <HomePage
+              hydrated={state.hydrated}
+              tasks={state.tasks}
+              filter={state.filter}
+              searchQuery={state.searchQuery}
+              onChangeFilter={(filter) => dispatch({ type: "SET_FILTER", filter })}
+              onChangeSearch={(query) => dispatch({ type: "SET_SEARCH", query })}
+              onAddTask={({ title, note }) => dispatch({ type: "ADD_TASK", title, note })}
+              onUpdateTask={({ id, title, note, status }) =>
+                dispatch({ type: "UPDATE_TASK", id, title, note, status })
+              }
+              onToggleTask={(id) => api.completeWithUndo(id)}
+              onDeleteTask={(id) => api.deleteWithUndo(id)}
+              onShowToast={api.showToast}
+            />
+          }
+        />
+        <Route
+          path="/settings"
+          element={
+            <SettingsPage
+              theme={state.theme}
+              onChangeTheme={(theme) => dispatch({ type: "SET_THEME", theme })}
+              onClearAll={() => dispatch({ type: "CLEAR_ALL" })}
+              onShowToast={api.showToast}
+            />
+          }
+        />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
 
-        <main className="card" aria-label="Todo app">
-          <AddTodoForm
-            ref={addInputRef}
-            maxLen={TITLE_MAX_LEN}
-            onAdd={onAddTask}
-          />
-
-          <TodoControls
-            filter={filter}
-            onChangeFilter={(next) => setFilter(next)}
-            searchQuery={searchQuery}
-            onChangeSearch={setSearchQuery}
-            completedCount={completedCount}
-            onClearCompleted={requestClearCompleted}
-          />
-
-          <TodoList
-            tasks={visibleTasks}
-            isEmptyAll={showEmptyAll}
-            isEmptySearch={showEmptySearch}
-            onToggle={(id) => dispatch({ type: "toggle", payload: { id } })}
-            onRequestDelete={requestDeleteTask}
-            onStartEdit={startEdit}
-            editingTaskId={editingTaskId}
-            editingTitleDraft={editingTitleDraft}
-            onChangeEditingTitle={(v) => {
-              setEditingTitleDraft(v.slice(0, TITLE_MAX_LEN));
-              if (editError) setEditError("");
-            }}
-            editError={editError}
-            onCommitEdit={commitEdit}
-            onCancelEdit={cancelEdit}
-            maxLen={TITLE_MAX_LEN}
-          />
-
-          <FooterStats activeCount={activeCount} totalCount={tasks.length} />
-        </main>
-      </div>
-
-      <ConfirmDialog
-        open={confirmState.open}
-        title={confirmState.title}
-        message={confirmState.message}
-        confirmText={confirmState.confirmText}
-        cancelText="Hủy"
-        onCancel={closeConfirm}
-        onConfirm={confirmAction}
+      <Toast
+        toast={state.toast}
+        onClose={() => dispatch({ type: "HIDE_TOAST", id: state.toast?.id })}
       />
     </div>
   );
